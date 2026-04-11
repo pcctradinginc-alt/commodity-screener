@@ -29,13 +29,14 @@ thresholds:
   mirofish_parallel_workers: 4
   conviction_min_for_trade: 6
   max_qualifiers: 2
-  options_dte_min: 10
-  options_dte_max: 365
-  options_delta_min: 0.05
-  options_delta_max: 0.70
-  options_bid_ask_max_pct: 0.20
-  options_oi_min: 10
-  options_volume_min: 1
+  options_dte_min: 21
+  options_dte_max: 180
+  options_delta_min: 0.20
+  options_delta_max: 0.45
+  options_bid_ask_max_pct: 0.25
+  options_oi_min: 100
+  options_volume_min: 0
+  options_long_only: true
   outlier_zscore_threshold: 5.5
 
 email:
