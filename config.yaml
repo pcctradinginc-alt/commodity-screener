@@ -34,8 +34,8 @@ thresholds:
   options_delta_min: 0.20
   options_delta_max: 0.45
   options_bid_ask_max_pct: 0.20
-  options_oi_min: 500
-  options_volume_min: 10
+  options_oi_min: 50
+  options_volume_min: 1
   outlier_zscore_threshold: 5.5
 
 email:
