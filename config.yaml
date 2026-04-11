@@ -40,7 +40,7 @@ thresholds:
 
 email:
   recipients:
-    - deine@email.com
+    - set-via-RECIPIENT_EMAIL-secret
   subject_template: "[Commodity Screener] {segment} | {ticker} | Conviction {score}/10 | {date}"
 
 monte_carlo:
