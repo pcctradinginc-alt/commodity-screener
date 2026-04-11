@@ -18,6 +18,7 @@ watchlist:
   equity_proxy:
     tickers: [XLE, GLD, USO]
     rss_query: "XLE GLD USO energy ETF commodity fund"
+    cot_code: ""
     smile_factor: 0.10
 
 thresholds:
@@ -39,7 +40,7 @@ thresholds:
 
 email:
   recipients:
-    - pcctradinginc@gmail.com
+    - deine@email.com
   subject_template: "[Commodity Screener] {segment} | {ticker} | Conviction {score}/10 | {date}"
 
 monte_carlo:

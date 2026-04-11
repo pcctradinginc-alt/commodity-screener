@@ -80,16 +80,24 @@ class DataFetcher:
         return self._get(url)
 
     def fetch_finnhub_candles(self, ticker, days=22):
-        now = int(datetime.datetime.utcnow().timestamp())
-        from_ts = now - days * 86400
-        url = (f"https://finnhub.io/api/v1/stock/candle"
-               f"?symbol={ticker}&resolution=D&from={from_ts}&to={now}"
-               f"&token={self.finnhub_key}")
-        data = self._get(url)
-        if data.get("s") != "ok":
+        """Fallback: use yfinance for historical candles (Finnhub free tier blocks this)."""
+        try:
+            import yfinance as yf
+            df = yf.download(ticker, period="1mo", auto_adjust=True, progress=False)
+            if df.empty:
+                return []
+            result = []
+            for _, row in df.iterrows():
+                result.append({
+                    "h": float(row["High"]),
+                    "l": float(row["Low"]),
+                    "c": float(row["Close"]),
+                    "v": float(row["Volume"]),
+                })
+            return result
+        except Exception as e:
+            print(f"  yfinance candles error {ticker}: {e}")
             return []
-        return [{"h": h, "l": l, "c": c, "v": v}
-                for h, l, c, v in zip(data["h"], data["l"], data["c"], data["v"])]
 
     # ── EIA ──────────────────────────────────────────────────────────
 
@@ -110,22 +118,31 @@ class DataFetcher:
     # ── CFTC COT ─────────────────────────────────────────────────────
 
     def fetch_cot(self, cot_code):
-        url = ("https://publicreporting.cftc.gov/api/explore/dataset/"
-               "com-disagg-report-legacy-futures-only/records"
-               f"?where=cftc_commodity_code={cot_code}&order_by=report_date_as_yyyy_mm_dd+desc&limit=2")
-        data = self._get(url)
-        records = data.get("results", [])
-        if not records:
-            return {"net_commercial": 0, "as_of": ""}
-        r = records[0]
-        net = (int(r.get("comm_positions_long_all", 0)) -
-               int(r.get("comm_positions_short_all", 0)))
-        return {
-            "net_commercial": net,
-            "long": int(r.get("comm_positions_long_all", 0)),
-            "short": int(r.get("comm_positions_short_all", 0)),
-            "as_of": r.get("report_date_as_yyyy_mm_dd", ""),
-        }
+        if not cot_code:
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+        try:
+            url = (
+                f"https://publicreporting.cftc.gov/api/explore/dataset/"
+                f"com-disagg-report-legacy-futures-only/exports/json"
+                f"?where=cftc_commodity_code%3D{cot_code}"
+                f"&order_by=report_date_as_yyyy_mm_dd+DESC&limit=2"
+            )
+            data = self._get(url)
+            records = data if isinstance(data, list) else data.get("results", [])
+            if not records:
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+            r = records[0]
+            net = (int(r.get("comm_positions_long_all", 0)) -
+                   int(r.get("comm_positions_short_all", 0)))
+            return {
+                "net_commercial": net,
+                "long": int(r.get("comm_positions_long_all", 0)),
+                "short": int(r.get("comm_positions_short_all", 0)),
+                "as_of": r.get("report_date_as_yyyy_mm_dd", ""),
+            }
+        except Exception as e:
+            print(f"  COT fetch error {cot_code}: {e}")
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
 
     # ── FRED ─────────────────────────────────────────────────────────
 
