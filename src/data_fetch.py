@@ -55,12 +55,27 @@ class DataFetcher:
         today = datetime.date.today()
         expiry = self._next_monthly_expiry(today, min_dte=21)
         if not expiry:
+            print(f"  No valid expiry for {ticker}")
             return []
         url = "https://api.tradier.com/v1/markets/options/chains"
-        data = self._get(url, self.headers_tradier,
-                         {"symbol": ticker, "expiration": expiry, "greeks": "true"})
-        chain = (data.get("options") or {}).get("option") or []
-        return chain if isinstance(chain, list) else [chain]
+        try:
+            r = requests.get(url, headers=self.headers_tradier,
+                             params={"symbol": ticker, "expiration": expiry,
+                                     "greeks": "true"}, timeout=self.timeout)
+            if r.status_code == 401:
+                print(f"  Tradier 401 Unauthorized {ticker} — check TRADIER_KEY")
+                return []
+            if r.status_code != 200:
+                print(f"  Tradier HTTP {r.status_code} for {ticker}")
+                return []
+            data = r.json()
+            chain = (data.get("options") or {}).get("option") or []
+            result = chain if isinstance(chain, list) else [chain]
+            print(f"  Tradier {ticker}: {len(result)} options (expiry {expiry})")
+            return result
+        except Exception as e:
+            print(f"  Tradier chain error {ticker}: {e}")
+            return []
 
     def _next_monthly_expiry(self, today, min_dte=21):
         for m in range(1, 5):
@@ -194,10 +209,18 @@ class DataFetcher:
 
     def fetch_yfinance(self, ticker, period="2y"):
         try:
-            df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+            import yfinance as yf
+            df = yf.download(ticker, period=period, auto_adjust=True,
+                             progress=False, group_by="ticker")
             if df.empty:
                 return []
-            return df[["Open", "High", "Low", "Close", "Volume"]].reset_index().to_dict("records")
+            # Flatten MultiIndex columns if present
+            if hasattr(df.columns, "levels"):
+                df.columns = df.columns.get_level_values(-1)
+            df.columns = [str(c).strip() for c in df.columns]
+            # Reset index so Date becomes a regular column
+            df = df.reset_index()
+            return df.to_dict("records")
         except Exception as e:
             print(f"  yfinance error {ticker}: {e}")
             return []
