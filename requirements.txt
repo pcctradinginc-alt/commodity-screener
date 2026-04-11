@@ -1,0 +1,10 @@
+anthropic>=0.25.0
+prophet>=1.1.5
+scipy>=1.12.0
+numpy>=1.26.0
+pandas>=2.2.0
+yfinance>=0.2.38
+requests>=2.31.0
+pyyaml>=6.0.1
+finnhub-python>=2.4.19
+fredapi>=0.5.1

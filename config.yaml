@@ -1,0 +1,55 @@
+watchlist:
+  energy:
+    tickers: [USO, XLE, UNG]
+    rss_query: "crude oil WTI Brent OPEC natural gas"
+    eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W"]
+    cot_code: "067651"
+    smile_factor: 0.18
+  agri:
+    tickers: [CORN, WEAT, SOYB]
+    rss_query: "USDA WASDE corn wheat soybean crop harvest"
+    cot_code: "002602"
+    smile_factor: 0.22
+  metals:
+    tickers: [GLD, SLV, COPX]
+    rss_query: "gold silver copper LME Fed interest rate metals"
+    cot_code: "088691"
+    smile_factor: 0.12
+  equity_proxy:
+    tickers: [XLE, GLD, USO]
+    rss_query: "XLE GLD USO energy ETF commodity fund"
+    smile_factor: 0.10
+
+thresholds:
+  data_health_min: 75
+  segment_score_min: 6
+  mirofish_score_min: 65
+  mirofish_timeout_seconds: 60
+  mirofish_parallel_workers: 4
+  conviction_min_for_trade: 6
+  max_qualifiers: 2
+  options_dte_min: 21
+  options_dte_max: 180
+  options_delta_min: 0.20
+  options_delta_max: 0.45
+  options_bid_ask_max_pct: 0.20
+  options_oi_min: 500
+  options_volume_min: 10
+  outlier_zscore_threshold: 5.5
+
+email:
+  recipients:
+    - deine@email.com
+  subject_template: "[Commodity Screener] {segment} | {ticker} | Conviction {score}/10 | {date}"
+
+monte_carlo:
+  simulations: 10000
+  seed: 42
+
+backtest:
+  lookback_days: 730
+  min_sample_size: 20
+  cot_release_lag_days: 3
+  eia_release_lag_days: 1
+  fred_release_lag_days: 1
+  apply_spread_adjustment: true
