@@ -126,11 +126,23 @@ class HTMLCardGenerator:
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:16px;">
       <p style="margin:0 0 8px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Empfehlung</p>
       <p style="margin:0;font-size:16px;font-weight:700;color:#111827;font-family:monospace;">{rec.get('symbol','N/A')}</p>
-      <div style="display:flex;gap:20px;margin-top:10px;flex-wrap:wrap;">
-        <div><p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;">Strike</p><p style="margin:2px 0 0;font-size:15px;font-weight:600;color:#111827;">${rec.get('strike','N/A')}</p></div>
-        <div><p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;">Expiry</p><p style="margin:2px 0 0;font-size:15px;font-weight:600;color:#111827;">{rec.get('expiry','N/A')}</p></div>
-        <div><p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;">Typ</p><p style="margin:2px 0 0;font-size:15px;font-weight:600;color:{dir_color};">{opt_type}</p></div>
-        <div><p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;">Einstieg</p><p style="margin:2px 0 0;font-size:15px;font-weight:600;color:#111827;">${mid:.2f}</p></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+          <p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Strike</p>
+          <p style="margin:6px 0 0;font-size:18px;font-weight:700;color:#111827;">${rec.get('strike','N/A')}</p>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+          <p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Expiry</p>
+          <p style="margin:6px 0 0;font-size:18px;font-weight:700;color:#111827;">{rec.get('expiry','N/A')}</p>
+        </div>
+        <div style="background:{dir_color}12;border:1px solid {dir_color}40;border-radius:8px;padding:10px 14px;">
+          <p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Typ</p>
+          <p style="margin:6px 0 0;font-size:18px;font-weight:700;color:{dir_color};">{opt_type}</p>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+          <p style="margin:0;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Einstieg (Mid)</p>
+          <p style="margin:6px 0 0;font-size:18px;font-weight:700;color:#111827;">${mid:.2f}</p>
+        </div>
       </div>
     </div>
 
@@ -173,7 +185,7 @@ class HTMLCardGenerator:
           <p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#2563eb;">{edge:.0f}</p>
         </div>
         <div style="flex:1;text-align:center;padding:10px 8px;background:#fff;border-radius:6px;border:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:10px;color:#9ca3af;">Mirofish</p>
+          <p style="margin:0;font-size:10px;color:#9ca3af;">MC Pfad-Analyse</p>
           <p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#7c3aed;">{miro}</p>
           <p style="margin:2px 0 0;font-size:10px;color:#9ca3af;">{miro_conf}</p>
         </div>
@@ -200,7 +212,7 @@ class HTMLCardGenerator:
     {open_pos_html}
 
     <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f3f4f6;">
-      <p style="margin:0;font-size:11px;color:#9ca3af;">OI: {rec.get('oi',0):,} &nbsp;·&nbsp; Mirofish: {miro_conf} &nbsp;·&nbsp; v3.1</p>
+      <p style="margin:0;font-size:11px;color:#9ca3af;">OI: {rec.get('oi',0):,} &nbsp;·&nbsp; MC Pfad-Analyse: {miro_conf} &nbsp;·&nbsp; v3.1</p>
       <p style="margin:8px 0 0;font-size:11px;color:#ef4444;line-height:1.5;">Keine Anlageberatung. Optionshandel birgt das Risiko des Totalverlustes der eingesetzten Praemie. Daten basieren auf Vortagsschlusskursen.</p>
     </div>
 
