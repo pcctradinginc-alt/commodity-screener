@@ -38,8 +38,12 @@ class HTMLCardGenerator:
         mid   = rec.get("mid_price", 0)
         fv    = rec.get("fair_value_bs", 0)
         fv_vs = ((fv - mid) / mid * 100) if mid > 0 and fv > 0 else None
-        fv_str = f"${fv:.2f}" if fv > 0 else "n/a (tief OTM)"
-        fv_delta_str = f"{fv_vs:+.1f}% vs. Markt" if fv_vs is not None else ""
+        if fv > 0 and fv_vs is not None and abs(fv_vs) < 50:
+            fv_str = f"${fv:.2f}"
+            fv_delta_str = f"{fv_vs:+.1f}% vs. Markt"
+        else:
+            fv_str = "n/a"
+            fv_delta_str = "Smile-Korrektur unzureichend"
 
         mc_ev_raw = rec.get("mc_expected_value", 0)
         mc_ev_str = f"${mc_ev_raw:.0f}"
