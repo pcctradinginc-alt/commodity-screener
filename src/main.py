@@ -155,6 +155,7 @@ def run_pipeline():
             backtester = BacktestEngine(cfg, raw_data)
 
             chain = raw_data.get("options_chains", {}).get(ticker, [])
+            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0, "mid": 0, "spread": 0, "passed": 0}
             for option in chain:
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
@@ -165,14 +166,21 @@ def run_pipeline():
                 delta = abs(float((option.get("greeks") or {}).get("delta", 0) or 0))
                 iv = float((option.get("greeks") or {}).get("mid_iv", 0) or 0)
 
-                if oi < thr["options_oi_min"]: continue
-                if volume < thr["options_volume_min"]: continue
-                if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]): continue
-                if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]): continue
-                if mid == 0: continue
+                if oi < thr["options_oi_min"]:
+                    filter_stats["oi"] += 1; continue
+                if volume < thr["options_volume_min"]:
+                    filter_stats["volume"] += 1; continue
+                if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]):
+                    filter_stats["dte"] += 1; continue
+                if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]):
+                    filter_stats["delta"] += 1; continue
+                if mid == 0:
+                    filter_stats["mid"] += 1; continue
                 spread_pct = (ask - bid) / mid if mid > 0 else 1
-                if spread_pct > thr["options_bid_ask_max_pct"]: continue
+                if spread_pct > thr["options_bid_ask_max_pct"]:
+                    filter_stats["spread"] += 1; continue
 
+                filter_stats["passed"] += 1
                 open_syms = [p["symbol"] for p in positions["open_positions"]]
                 if option.get("symbol") in open_syms: continue
 
@@ -220,7 +228,8 @@ def run_pipeline():
                     "mirofish_confidence": "none",
                 })
 
-        artifact["candidates_pre_haiku"] = len(all_candidates)
+            print(f"  Filter stats {ticker}: {filter_stats}")
+            artifact["candidates_pre_haiku"] = len(all_candidates)
         print(f"  Total candidates after filter: {len(all_candidates)}")
 
         if not all_candidates:
