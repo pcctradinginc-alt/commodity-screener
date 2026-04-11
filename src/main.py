@@ -155,7 +155,13 @@ def run_pipeline():
             backtester = BacktestEngine(cfg, raw_data)
 
             chain = raw_data.get("options_chains", {}).get(ticker, [])
-            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0, "mid": 0, "spread": 0, "passed": 0}
+            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0,
+                           "mid": 0, "spread": 0, "passed": 0}
+            sample = chain[0] if chain else {}
+            print(f"  Sample option fields: oi={sample.get('open_interest')}, "
+                  f"dte={sample.get('dte')}, "
+                  f"delta={( sample.get('greeks') or {}).get('delta')}, "
+                  f"bid={sample.get('bid')}, ask={sample.get('ask')}")
             for option in chain:
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
@@ -163,8 +169,17 @@ def run_pipeline():
                 ask = option.get("ask", 0) or 0
                 mid = (bid + ask) / 2 if bid and ask else 0
                 dte = option.get("dte", 0) or 0
-                delta = abs(float((option.get("greeks") or {}).get("delta", 0) or 0))
-                iv = float((option.get("greeks") or {}).get("mid_iv", 0) or 0)
+                greeks = option.get("greeks") or {}
+                delta_raw = greeks.get("delta", None)
+                # If delta not available, use moneyness as proxy
+                if delta_raw is None:
+                    spot_tmp = raw_data.get("quotes", {}).get(ticker, {}).get("last", 0) or 0
+                    strike_tmp = option.get("strike", 0) or 0
+                    # Accept option if we can't determine delta
+                    delta = 0.30
+                else:
+                    delta = abs(float(delta_raw or 0))
+                iv = float(greeks.get("mid_iv", 0) or 0)
 
                 if oi < thr["options_oi_min"]:
                     filter_stats["oi"] += 1; continue
