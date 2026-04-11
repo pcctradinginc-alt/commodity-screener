@@ -61,6 +61,8 @@ class ClaudeDeepAnalysis:
         today = datetime.date.today().isoformat()
 
         prompt = f"""Du bist ein erfahrener Commodity-Options-Analyst. Heute ist {today}.
+WICHTIG: Empfehle ausschliesslich LONG-Optionen (Kauf von Calls oder Puts).
+Kein Short-Selling, kein Verkauf von Optionen. Max. Verlust = gezahlte Praemie.
 
 SEGMENT: {seg.upper()} | Data as-of: {data_as_of.get(f'eia_{seg}', 'N/A')}
 
@@ -76,37 +78,40 @@ FUNDAMENTALDATEN:
 OFFENE POSITIONEN (keine Doppel-Entries):
 {open_pos_str}
 
-KANDIDATEN (nach Mirofish-Gate, max. 8):
+KANDIDATEN (Long-Optionen nach Mirofish-Gate, max. 8):
 {candidates_str}
 
-DATA-HEALTH-SCORE: {health.get('score', 'N/A')}
-HIGH_VOLATILITY_FLAG: {health.get('high_volatility_flag', False)}
+HINWEISE ZUR BEWERTUNG:
+- MC Expected Value ist in USD pro Kontrakt (100 Aktien) angegeben
+- Ein negativer EV bedeutet: statistisch verlustreich — Conviction abziehen
+- Delta sollte idealerweise 0.25-0.40 sein (direktionaler Bias ohne zu teuer)
+- IV-Rank > 50 bevorzugen (erhoehte Praemien-Umgebung)
+- Waehle die Option mit bestem Verhaeltnis EV/Praemie und realistischem Delta
 
 AUFGABE:
-1. Synthese: Stützen quantitative Scores, COT, EIA und News dieselbe Richtung? (2 Sätze konkret)
-2. Wähle die beste Option aus den Kandidaten
-3. Conviction-Score 1-10:
-   Abzüge: -2 wenn News/Fundamentals widersprechen, -1 wenn IV-Rank < 35,
-   -1 wenn Mirofish-Confidence = low oder none, -1 wenn HIGH_VOLATILITY_FLAG
-4. Fair Value vs. Marktpreis (aus Kandidaten-Daten)
-5. Max. Verlust
-6. Expected Value aus Monte Carlo
-7. Historische Win-Rate (Hinweis: spread-adjusted + as-of korrigiert)
+1. Synthese: Zeigen COT, EIA und News dieselbe Richtung? (2 konkrete Saetze)
+2. Waehle die beste LONG-Option (Call ODER Put je nach Richtung)
+3. Conviction 1-10: -2 wenn Widerspruch News/Fundamentals, -1 wenn IV-Rank < 35,
+   -1 wenn Delta < 0.20 oder > 0.45, -1 wenn MC EV negativ
+4. Fair Value vs. Marktpreis
+5. Max. Verlust = Praemie x 100
+6. MC Expected Value (aus Kandidaten-Daten uebernehmen, nicht neuberechnen)
+7. Win-Rate historisch
 8. Invalidierungs-Szenario (1 Satz)
 9. News-Kontext (1 Satz)
 
-ANTWORTE EXAKT in diesem Format (keine Abweichungen):
+FORMAT (exakt einhalten):
 EMPFEHLUNG: [Symbol] [Strike] [Expiry] [Call/Put]
-EINSTIEG: [Mid-Preis] (Limit zum Ask empfohlen)
-FAIR VALUE: [BS-Preis] ([+/-X% vs. Markt])
-CONVICTION: [1-10] — [Begründung 1 Satz]
-MAX VERLUST: $[Prämie x 100]
-EXPECTED VALUE: $[MC EV]
-WIN-RATE HISTORISCH: [X%] (n=[Stichprobe], spread-adjusted, as-of korrigiert)
-THESE: [1 Satz]
+EINSTIEG: [Mid-Preis]
+FAIR VALUE: [BS-Preis] ([+/-X% vs. Markt] oder n/a wenn tief OTM)
+CONVICTION: [1-10] — [Begruendung 1 Satz]
+MAX VERLUST: $[Praemie x 100]
+EXPECTED VALUE: $[MC EV aus Kandidaten-Daten]
+WIN-RATE HISTORISCH: [X%] (n=[Stichprobe])
+THESE: [1 Satz — was muss passieren damit die Option profitabel wird]
 INVALIDIERUNG: [1 Satz]
-NEWS: [1 Satz]
-DATA AS-OF: {today} (Daten basieren auf US-Börsenschluss vom Vortag)"""
+NEWS: [1 Satz welche Schlagzeile die These stuetzt oder widerspricht]
+DATA AS-OF: {today} (US-Boersenschluss Vortag)"""
 
         try:
             response = self.client.messages.create(
