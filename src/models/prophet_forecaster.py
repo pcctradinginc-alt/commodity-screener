@@ -29,11 +29,33 @@ class ProphetForecaster:
 
         try:
             df = pd.DataFrame(hist)
-            close_col = "Close" if "Close" in df.columns else "close"
-            date_col = "Date" if "Date" in df.columns else "date"
-            df = df.rename(columns={close_col: "y", date_col: "ds"})
+
+            # yfinance returns Date as index or as column — normalize
+            if "Date" in df.columns:
+                df = df.rename(columns={"Date": "ds"})
+            elif "date" in df.columns:
+                df = df.rename(columns={"date": "ds"})
+            else:
+                df = df.reset_index()
+                date_col = [c for c in df.columns if "date" in str(c).lower() or "index" in str(c).lower()]
+                if date_col:
+                    df = df.rename(columns={date_col[0]: "ds"})
+                else:
+                    return self._fallback_forecast(segment, hist)
+
+            # Normalize close column
+            if "Close" in df.columns:
+                df = df.rename(columns={"Close": "y"})
+            elif "close" in df.columns:
+                df = df.rename(columns={"close": "y"})
+            else:
+                return self._fallback_forecast(segment, hist)
+
             df["ds"] = pd.to_datetime(df["ds"])
             df = df[["ds", "y"]].dropna().sort_values("ds")
+
+            if len(df) < 20:
+                return self._fallback_forecast(segment, hist)
 
             model = Prophet(
                 daily_seasonality=False,
