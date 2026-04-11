@@ -25,6 +25,11 @@ class EmailSender:
             print("  WARNING: Gmail credentials not set — skipping email")
             return False
 
+        # Read recipient from env (GitHub Secret) or fall back to config
+        recipient_env = os.environ.get("RECIPIENT_EMAIL", "")
+        if recipient_env:
+            self.recipients = [recipient_env]
+
         seg = recommendation.get("segment", "unknown").upper()
         ticker = recommendation.get("symbol", "N/A")
         score = recommendation.get("conviction", 0)
