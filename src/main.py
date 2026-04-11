@@ -213,6 +213,18 @@ def run_pipeline():
                     filter_stats["delta"] += 1; continue
                 if mid == 0:
                     filter_stats["mid"] += 1; continue
+
+                # Sanity check: skip if mid < intrinsic value (data error)
+                spot_tmp = raw_data.get("quotes", {}).get(ticker, {}).get("last", 0) or \
+                           raw_data.get("quotes", {}).get(ticker, {}).get("c", 0) or 0
+                if spot_tmp > 0:
+                    intrinsic = 0.0
+                    if option.get("option_type", "call") == "call":
+                        intrinsic = max(spot_tmp - (option.get("strike") or 0), 0)
+                    else:
+                        intrinsic = max((option.get("strike") or 0) - spot_tmp, 0)
+                    if intrinsic > 0 and mid < intrinsic * 0.5:
+                        filter_stats["mid"] += 1; continue
                 # Only check spread if we have both bid and ask
                 if bid > 0 and ask > 0:
                     spread_pct = (ask - bid) / mid
@@ -236,9 +248,12 @@ def run_pipeline():
                                         option.get("option_type", "call"))
                 edge = (mid - fv) / mid * 100 if mid > 0 else 0
 
-                ev, win_prob = mc_sim.simulate(spot, option["strike"], r,
-                                               dte/252, iv_adj, mid,
-                                               forecast.get("drift", 0))
+                ev, win_prob = mc_sim.simulate(
+                    spot, option["strike"], r,
+                    dte/252, iv_adj, mid,
+                    forecast.get("drift", 0),
+                    option.get("option_type", "call"),
+                )
                 bt = backtester.find_similar(seg, iv*100, dte)
 
                 es = (0.30 * min(max(ev/mid*100, 0), 100) +
