@@ -138,6 +138,9 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
+        # Segment scores in raw_data für Mirofish-Drift-Berechnung
+        raw_data["segment_scores"] = segment_scores
+
         # ── Stage 4: Quantitative Models ────────────────────────────
         print("\nStage 4: Quantitative models...")
         all_candidates = []
