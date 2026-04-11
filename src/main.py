@@ -157,9 +157,10 @@ def run_pipeline():
             chain = raw_data.get("options_chains", {}).get(ticker, [])
             filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0,
                            "mid": 0, "spread": 0, "passed": 0}
+            today_date = datetime.date.today()
             sample = chain[0] if chain else {}
             print(f"  Sample option fields: oi={sample.get('open_interest')}, "
-                  f"dte={sample.get('dte')}, "
+                  f"expiry={sample.get('expiration_date')}, "
                   f"delta={( sample.get('greeks') or {}).get('delta')}, "
                   f"bid={sample.get('bid')}, ask={sample.get('ask')}")
             for option in chain:
@@ -167,33 +168,53 @@ def run_pipeline():
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
                 ask = option.get("ask", 0) or 0
-                mid = (bid + ask) / 2 if bid and ask else 0
-                dte = option.get("dte", 0) or 0
+
+                # Calculate DTE from expiration_date if dte field missing
+                dte = option.get("dte", None)
+                if dte is None:
+                    exp_str = option.get("expiration_date", "")
+                    if exp_str:
+                        try:
+                            exp_date = datetime.date.fromisoformat(exp_str)
+                            dte = (exp_date - today_date).days
+                        except ValueError:
+                            dte = 0
+                    else:
+                        dte = 0
+                dte = int(dte or 0)
+
+                # Mid price — use ask if bid=0 (common for illiquid options)
+                if bid > 0 and ask > 0:
+                    mid = (bid + ask) / 2
+                elif ask > 0:
+                    mid = ask
+                else:
+                    mid = 0
+
                 greeks = option.get("greeks") or {}
                 delta_raw = greeks.get("delta", None)
-                # If delta not available, use moneyness as proxy
-                if delta_raw is None:
-                    spot_tmp = raw_data.get("quotes", {}).get(ticker, {}).get("last", 0) or 0
-                    strike_tmp = option.get("strike", 0) or 0
-                    # Accept option if we can't determine delta
-                    delta = 0.30
-                else:
+                if delta_raw is not None:
                     delta = abs(float(delta_raw or 0))
+                else:
+                    delta = 0.30  # assume ATM-ish when Greeks missing
+
                 iv = float(greeks.get("mid_iv", 0) or 0)
+                if iv == 0:
+                    iv = 0.30  # assume 30% IV when missing
 
                 if oi < thr["options_oi_min"]:
                     filter_stats["oi"] += 1; continue
-                if volume < thr["options_volume_min"]:
-                    filter_stats["volume"] += 1; continue
                 if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]):
                     filter_stats["dte"] += 1; continue
                 if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]):
                     filter_stats["delta"] += 1; continue
                 if mid == 0:
                     filter_stats["mid"] += 1; continue
-                spread_pct = (ask - bid) / mid if mid > 0 else 1
-                if spread_pct > thr["options_bid_ask_max_pct"]:
-                    filter_stats["spread"] += 1; continue
+                # Only check spread if we have both bid and ask
+                if bid > 0 and ask > 0:
+                    spread_pct = (ask - bid) / mid
+                    if spread_pct > thr["options_bid_ask_max_pct"]:
+                        filter_stats["spread"] += 1; continue
 
                 filter_stats["passed"] += 1
                 open_syms = [p["symbol"] for p in positions["open_positions"]]
