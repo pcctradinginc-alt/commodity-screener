@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 log = logging.getLogger(__name__)
 
 N_PATHS   = 100_000
-THRESHOLD = 0.65    # 65% der Pfade müssen Strike erreichen
+THRESHOLD = 0.25    # 25% profitable Pfade bei Expiry (realistisch für OTM-Optionen)
 
 SECTOR_VOL_MULT = {
     "Energy":            1.2,
@@ -68,96 +68,103 @@ class MirofishChecker:
 
     def _simulate_one(self, candidate):
         """
-        Monte-Carlo Pfad-Simulation für einen Options-Kandidaten.
-        Gibt candidate + mirofish_score + simulation-Details zurück.
+        Monte-Carlo Profitabilitäts-Simulation.
+        Misst: Anteil der Pfade wo Option bei Expiry profitabel ist
+        (Payoff > gezahlte Prämie) — nicht nur Strike-Berührung.
         """
         ticker    = candidate.get("ticker", "")
         dte       = candidate.get("dte", 45)
         opt_type  = candidate.get("option_type", "call").upper()
         strike    = float(candidate.get("strike", 0))
-        news_raw  = candidate.get("news_raw_score", 5)   # 0-83 aus news_screener
-        cot_net   = candidate.get("cot_net", 0)          # COT Net-Commercial
-        iv        = candidate.get("iv_pct", 30) / 100    # annualisiert
+        premium   = float(candidate.get("mid_price", 0))
+        news_raw  = candidate.get("news_raw_score", 5)
+        cot_net   = candidate.get("cot_net", 0)
+        iv        = candidate.get("iv_pct", 30) / 100
 
         sigma_daily, current_price, sector = self._get_market_params(ticker)
 
-        if current_price <= 0 or strike <= 0:
+        if current_price <= 0 or strike <= 0 or premium <= 0:
             return {**candidate, "mirofish_score": 0,
                     "mirofish_confidence": "none",
                     "agent_consensus": "no_data"}
 
-        # Sektor-Adjustierung
+        # Sektor-Volatilität
         vol_mult  = SECTOR_VOL_MULT.get(sector, 1.0)
         sigma_adj = sigma_daily * vol_mult
 
-        # Adoption-Drift aus News-Score (0-83 → 0-0.008 täglich)
-        base_alpha = (news_raw / 83.0) * 0.008
-        # COT-Einfluss: positive net = bullish
-        cot_alpha  = np.sign(cot_net) * min(abs(cot_net) / 1_000_000, 0.003)
-
-        direction  = "BULLISH" if opt_type == "CALL" else "BEARISH"
+        # Drift: News-Alpha + COT-Einfluss, täglich abnehmend
+        base_alpha  = (news_raw / 83.0) * 0.008
+        cot_alpha   = np.sign(cot_net) * min(abs(cot_net) / 1_000_000, 0.003)
+        direction   = "BULLISH" if opt_type == "CALL" else "BEARISH"
         total_alpha = base_alpha + cot_alpha
         if direction == "BEARISH":
             total_alpha = -total_alpha
 
-        # Narrative-Decay
         decay_rate = NARRATIVE_DECAY[self._decay_bucket(dte)]
 
-        # Target: Option muss ITM werden → Strike muss erreicht werden
-        target_price = strike
-
-        # Monte-Carlo — vektorisiert (100k Pfade in ~0.3s statt 1.8s)
+        # Vektorisiertes GBM: (N_PATHS × n_days)
         rng    = np.random.default_rng(seed=42)
         n_days = min(dte, 180)
 
-        # Drift-Vektor: täglich abnehmend
         alphas = np.array([
             total_alpha * np.exp(-decay_rate * d)
             for d in range(n_days)
         ])
 
-        # Alle Pfade auf einmal: (N_PATHS × n_days)
-        Z            = rng.standard_normal((N_PATHS, n_days))
+        Z             = rng.standard_normal((N_PATHS, n_days))
         daily_returns = alphas[np.newaxis, :] + sigma_adj * Z
         log_returns   = np.log1p(daily_returns)
         prices        = current_price * np.exp(np.cumsum(log_returns, axis=1))
 
-        # Pfad trifft Gate wenn irgendwann Strike erreicht
+        # Schlusskurs bei Expiry (letzter Tag)
+        final_prices = prices[:, -1]
+
+        # Payoff bei Expiry — korrekte Call/Put-Formel
         if direction == "BULLISH":
-            hit = np.any(prices >= target_price, axis=1)
+            payoffs = np.maximum(final_prices - strike, 0)
         else:
-            hit = np.any(prices <= target_price, axis=1)
+            payoffs = np.maximum(strike - final_prices, 0)
 
-        hit_rate = float(hit.mean())
+        # Profitabel wenn Payoff > gezahlte Prämie (break-even überschritten)
+        profitable = payoffs > premium
 
-        # Score 0-100
-        mirofish_score = round(hit_rate * 100)
+        # Erwarteter Profit pro Kontrakt
+        ev_per_contract = float((payoffs - premium).mean() * 100)
 
-        if hit_rate >= 0.75:
+        profit_rate = float(profitable.mean())
+
+        # Score 0-100 basiert auf Profitabilität (nicht Strike-Berührung)
+        mirofish_score = round(profit_rate * 100)
+
+        if profit_rate >= 0.45:
             confidence = "high"
-        elif hit_rate >= 0.60:
+        elif profit_rate >= 0.30:
             confidence = "medium"
-        elif hit_rate >= 0.40:
+        elif profit_rate >= 0.15:
             confidence = "low"
         else:
             confidence = "none"
 
         consensus = "bullish" if direction == "BULLISH" else "bearish"
 
-        log.info(f"  [{ticker} {opt_type} {strike}] "
-                 f"hit_rate={hit_rate:.1%} score={mirofish_score} "
-                 f"({'PASS' if hit_rate >= THRESHOLD else 'FAIL'})")
+        print(f"  [{ticker} {opt_type} {strike:.1f} @${premium:.2f}] "
+              f"profit_rate={profit_rate:.1%} ev=${ev_per_contract:.0f} "
+              f"score={mirofish_score} "
+              f"({'PASS' if profit_rate >= THRESHOLD else 'FAIL'})")
 
         return {
             **candidate,
             "mirofish_score":      mirofish_score,
             "mirofish_confidence": confidence,
             "agent_consensus":     consensus,
+            "mirofish_ev":         round(ev_per_contract, 2),
             "simulation": {
-                "hit_rate":      round(hit_rate, 4),
+                "profit_rate":   round(profit_rate, 4),
+                "ev_contract":   round(ev_per_contract, 2),
                 "n_paths":       N_PATHS,
                 "n_days":        n_days,
-                "target_price":  round(target_price, 2),
+                "strike":        round(strike, 2),
+                "premium":       round(premium, 2),
                 "current_price": round(current_price, 2),
                 "sigma_adj":     round(sigma_adj, 4),
                 "sector":        sector,
