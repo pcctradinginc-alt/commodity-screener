@@ -80,20 +80,29 @@ class DataFetcher:
         return self._get(url)
 
     def fetch_finnhub_candles(self, ticker, days=22):
-        """Fallback: use yfinance for historical candles (Finnhub free tier blocks this)."""
+        """Use yfinance for historical candles — Finnhub free tier blocks this endpoint."""
         try:
             import yfinance as yf
-            df = yf.download(ticker, period="1mo", auto_adjust=True, progress=False)
+            df = yf.download(ticker, period="1mo", auto_adjust=True,
+                             progress=False, group_by="ticker")
             if df.empty:
                 return []
+            # yfinance >= 0.2.x may return MultiIndex columns
+            if hasattr(df.columns, "levels"):
+                df.columns = df.columns.get_level_values(-1)
+            # Normalize column names
+            df.columns = [str(c).strip().lower() for c in df.columns]
             result = []
             for _, row in df.iterrows():
-                result.append({
-                    "h": float(row["High"]),
-                    "l": float(row["Low"]),
-                    "c": float(row["Close"]),
-                    "v": float(row["Volume"]),
-                })
+                try:
+                    result.append({
+                        "h": float(row.get("high",  row.get("High",  0))),
+                        "l": float(row.get("low",   row.get("Low",   0))),
+                        "c": float(row.get("close", row.get("Close", 0))),
+                        "v": float(row.get("volume",row.get("Volume",0))),
+                    })
+                except (TypeError, ValueError):
+                    continue
             return result
         except Exception as e:
             print(f"  yfinance candles error {ticker}: {e}")
@@ -118,27 +127,32 @@ class DataFetcher:
     # ── CFTC COT ─────────────────────────────────────────────────────
 
     def fetch_cot(self, cot_code):
+        """
+        CFTC COT via official weekly CSV (disaggregated futures only).
+        The OpenData API endpoint has been deprecated — using direct CSV.
+        """
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
         try:
-            url = (
-                f"https://publicreporting.cftc.gov/api/explore/dataset/"
-                f"com-disagg-report-legacy-futures-only/exports/json"
-                f"?where=cftc_commodity_code%3D{cot_code}"
-                f"&order_by=report_date_as_yyyy_mm_dd+DESC&limit=2"
-            )
-            data = self._get(url)
-            records = data if isinstance(data, list) else data.get("results", [])
-            if not records:
+            import io
+            import csv
+            url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
+            resp = requests.get(url, timeout=20,
+                                headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            reader = csv.DictReader(io.StringIO(resp.text))
+            rows = [r for r in reader if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
+            if not rows:
                 return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
-            r = records[0]
-            net = (int(r.get("comm_positions_long_all", 0)) -
-                   int(r.get("comm_positions_short_all", 0)))
+            rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
+            r = rows[0]
+            comm_long  = int(r.get("Comm_Positions_Long_All",  0) or 0)
+            comm_short = int(r.get("Comm_Positions_Short_All", 0) or 0)
             return {
-                "net_commercial": net,
-                "long": int(r.get("comm_positions_long_all", 0)),
-                "short": int(r.get("comm_positions_short_all", 0)),
-                "as_of": r.get("report_date_as_yyyy_mm_dd", ""),
+                "net_commercial": comm_long - comm_short,
+                "long":  comm_long,
+                "short": comm_short,
+                "as_of": r.get("Report_Date_as_YYYY-MM-DD", ""),
             }
         except Exception as e:
             print(f"  COT fetch error {cot_code}: {e}")
