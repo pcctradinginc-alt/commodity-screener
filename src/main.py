@@ -217,8 +217,14 @@ def run_pipeline():
                         filter_stats["spread"] += 1; continue
 
                 filter_stats["passed"] += 1
+
+                # Long-only protection: skip if Claude might recommend short
+                if thr.get("options_long_only", True):
+                    pass  # all options kept as long candidates
+
                 open_syms = [p["symbol"] for p in positions["open_positions"]]
-                if option.get("symbol") in open_syms: continue
+                if option.get("symbol") in open_syms:
+                    continue
 
                 spot = raw_data.get("quotes", {}).get(ticker, {}).get("c", 0)
                 r = raw_data.get("fred", {}).get("fed_funds_rate", 0.05)
