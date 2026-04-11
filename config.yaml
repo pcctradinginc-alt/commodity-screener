@@ -24,7 +24,7 @@ watchlist:
 thresholds:
   data_health_min: 75
   segment_score_min: 5
-  mirofish_score_min: 65
+  mirofish_score_min: 25
   mirofish_timeout_seconds: 60
   mirofish_parallel_workers: 4
   conviction_min_for_trade: 6
