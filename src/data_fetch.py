@@ -234,6 +234,7 @@ class DataFetcher:
             "quotes": {},
             "candles": {},
             "options_chains": {},
+            "tradier_quotes": {},
             "eia": {},
             "cot": {},
             "fred": {},
@@ -245,10 +246,11 @@ class DataFetcher:
         def fetch_ticker_data(ticker):
             print(f"    Fetching {ticker}...")
             return {
-                "ticker": ticker,
-                "quote": self.fetch_finnhub_quote(ticker),
+                "ticker":  ticker,
+                "quote":   self.fetch_finnhub_quote(ticker),
+                "tquote":  self.fetch_tradier_quote(ticker),
                 "candles": self.fetch_finnhub_candles(ticker),
-                "chain": self.fetch_tradier_chain(ticker),
+                "chain":   self.fetch_tradier_chain(ticker),
             }
 
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -256,9 +258,10 @@ class DataFetcher:
             for f in as_completed(futures):
                 d = f.result()
                 t = d["ticker"]
-                result["quotes"][t] = d["quote"]
-                result["candles"][t] = d["candles"]
-                result["options_chains"][t] = d["chain"]
+                result["quotes"][t]         = d["quote"]
+                result["tradier_quotes"][t]  = d["tquote"]
+                result["candles"][t]         = d["candles"]
+                result["options_chains"][t]  = d["chain"]
 
         result["fred"] = self.fetch_fred()
 
