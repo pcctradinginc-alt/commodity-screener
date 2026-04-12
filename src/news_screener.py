@@ -4,6 +4,7 @@ Segment-specific keywords with negation penalty
 """
 
 import datetime
+import datetime
 import requests
 from xml.etree import ElementTree as ET
 
@@ -162,10 +163,24 @@ class NewsScreener:
         titles = []
         if not xml_str:
             return titles
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
         try:
             root = ET.fromstring(xml_str)
             for item in root.findall(".//item"):
                 t = item.findtext("title", "").strip()
+                pub_str = item.findtext("pubDate", "").strip()
+                # Parse date — skip articles older than 7 days
+                pub_dt = None
+                for fmt in ("%a, %d %b %Y %H:%M:%S %Z",
+                            "%a, %d %b %Y %H:%M:%S +0000",
+                            "%a, %d %b %Y %H:%M:%S GMT"):
+                    try:
+                        pub_dt = datetime.datetime.strptime(pub_str[:31], fmt)
+                        break
+                    except ValueError:
+                        continue
+                if pub_dt is not None and pub_dt < cutoff:
+                    continue   # skip stale articles
                 if t:
                     titles.append(t.lower())
         except ET.ParseError:
