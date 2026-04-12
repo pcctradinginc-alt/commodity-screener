@@ -161,11 +161,21 @@ def run_pipeline():
             filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0,
                            "mid": 0, "spread": 0, "passed": 0}
             today_date = datetime.date.today()
-            sample = chain[0] if chain else {}
-            print(f"  Sample option fields: oi={sample.get('open_interest')}, "
-                  f"expiry={sample.get('expiration_date')}, "
-                  f"delta={( sample.get('greeks') or {}).get('delta')}, "
-                  f"bid={sample.get('bid')}, ask={sample.get('ask')}")
+
+            # FIX #1+#2: resolve spot once per ticker from best available source
+            # Priority: Tradier quote → Finnhub "c" → Finnhub "pc" → 0
+            fh_quote  = raw_data.get("quotes", {}).get(ticker, {})
+            tr_quote  = raw_data.get("tradier_quotes", {}).get(ticker, {})
+            spot = (
+                float(tr_quote.get("last", 0) or 0) or
+                float(fh_quote.get("c", 0) or 0) or
+                float(fh_quote.get("pc", 0) or 0) or
+                float(fh_quote.get("previousClose", 0) or 0)
+            )
+            if spot <= 0:
+                print(f"  WARNING: No valid spot price for {ticker} — skipping segment")
+                continue
+            print(f"  Spot {ticker}: ${spot:.2f}")
             for option in chain:
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
@@ -215,14 +225,11 @@ def run_pipeline():
                     filter_stats["mid"] += 1; continue
 
                 # Sanity check: skip if mid < intrinsic value (data error)
-                spot_tmp = raw_data.get("quotes", {}).get(ticker, {}).get("last", 0) or \
-                           raw_data.get("quotes", {}).get(ticker, {}).get("c", 0) or 0
-                if spot_tmp > 0:
-                    intrinsic = 0.0
+                if spot > 0:
                     if option.get("option_type", "call") == "call":
-                        intrinsic = max(spot_tmp - (option.get("strike") or 0), 0)
+                        intrinsic = max(spot - (option.get("strike") or 0), 0)
                     else:
-                        intrinsic = max((option.get("strike") or 0) - spot_tmp, 0)
+                        intrinsic = max((option.get("strike") or 0) - spot, 0)
                     if intrinsic > 0 and mid < intrinsic * 0.5:
                         filter_stats["mid"] += 1; continue
                 # Only check spread if we have both bid and ask
@@ -241,7 +248,6 @@ def run_pipeline():
                 if option.get("symbol") in open_syms:
                     continue
 
-                spot = raw_data.get("quotes", {}).get(ticker, {}).get("c", 0)
                 r = raw_data.get("fred", {}).get("fed_funds_rate", 0.05)
                 iv_adj = bs_calc.smile_adjusted_iv(iv, spot, option["strike"], smile)
                 fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj,
@@ -254,9 +260,16 @@ def run_pipeline():
                     forecast.get("drift", 0),
                     option.get("option_type", "call"),
                 )
-                bt = backtester.find_similar(seg, iv*100, dte)
+                bt = backtester.find_similar(seg, iv*100, dte,
+                                             option.get("option_type", "call"))
 
-                es = (0.30 * min(max(ev/mid*100, 0), 100) +
+                # FIX #6: negative EV is penalized, not zeroed
+                # ev_normalized: -100 (max loss) to +100 (max gain), centered at 0
+                ev_pct = ev / max(mid, 0.01) * 100          # EV as % of premium
+                ev_normalized = max(min(ev_pct, 100), -100)  # clamp -100..+100
+                ev_component  = (ev_normalized + 100) / 2    # rescale to 0..100
+
+                es = (0.30 * ev_component +
                       0.25 * max(edge, 0) +
                       0.25 * bt.get("win_rate", 0.5) * 100 +
                       0.20 * forecast.get("confidence", 0.5) * 100)
