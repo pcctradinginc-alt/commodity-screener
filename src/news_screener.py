@@ -164,26 +164,34 @@ class NewsScreener:
         titles = []
         if not xml_str:
             return titles
-        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)
+        # Wider window on weekends when markets are closed and news is sparse
+        is_weekend = datetime.datetime.now(datetime.timezone.utc).weekday() >= 5
+        days = 5 if is_weekend else 3
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
         try:
             root = ET.fromstring(xml_str)
+            all_titles = []
+            recent_titles = []
             for item in root.findall(".//item"):
                 t = item.findtext("title", "").strip()
                 if not t:
                     continue
+                all_titles.append(t.lower())
                 pub_str = item.findtext("pubDate", "").strip()
                 pub_dt  = None
                 if pub_str:
                     try:
-                        # RFC-2822 parser — handles all RSS date variants reliably
                         pub_dt = email.utils.parsedate_to_datetime(pub_str)
                     except Exception:
                         pass
-                # If date unparseable → include (conservative)
-                # If date parseable and older than cutoff → skip
-                if pub_dt is not None and pub_dt < cutoff:
-                    continue
-                titles.append(t.lower())
+                # Include if unparseable or within window
+                if pub_dt is None or pub_dt >= cutoff:
+                    recent_titles.append(t.lower())
+            # Fallback: if date filter removes everything, use all articles
+            # but flag them as potentially stale
+            titles = recent_titles if recent_titles else all_titles
+            if not recent_titles and all_titles:
+                print(f"    WARNING: no recent articles found, using all {len(all_titles)} (may be stale)")
         except ET.ParseError:
             pass
         return titles
@@ -222,17 +230,7 @@ class NewsScreener:
     def score_all_segments(self):
         results = {}
         for seg in self.cfg["watchlist"]:
-            xml = self._fetch_rss(RSS_URLS[seg])
-            print(f"  [{seg}] RSS length: {len(xml)} chars")
-            if xml:
-                # Show first pubDate for debugging
-                try:
-                    from xml.etree import ElementTree as ET2
-                    root2 = ET2.fromstring(xml)
-                    first = root2.find(".//item/pubDate")
-                    print(f"  [{seg}] First pubDate: {repr(first.text if first is not None else 'none')}")
-                except Exception:
-                    pass
+            xml    = self._fetch_rss(RSS_URLS[seg])
             titles = self._parse_titles(xml)
             raw, headlines = self._score_titles(titles, KEYWORDS[seg])
             n_score = self._news_score(raw)
