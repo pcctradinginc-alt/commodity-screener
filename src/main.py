@@ -278,6 +278,7 @@ def run_pipeline():
                     "symbol":           option.get("symbol", ""),
                     "segment":          seg,
                     "ticker":           ticker,
+                    "spot_price":       round(spot, 2),
                     "strike":           option.get("strike"),
                     "expiry":           option.get("expiration_date", ""),
                     "option_type":      option.get("option_type", "call"),
