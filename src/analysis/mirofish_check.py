@@ -61,6 +61,15 @@ class MirofishChecker:
             log.debug(f"  yfinance {ticker}: {e}")
             return 0.02, 0.0, "default"
 
+    def _get_market_params_sector_only(self, ticker):
+        """Gets only sector — faster when we already have price and vol."""
+        try:
+            info   = yf.Ticker(ticker).info
+            sector = info.get("sector", "default")
+            return 0.0, 0.0, sector
+        except Exception:
+            return 0.0, 0.0, "default"
+
     def _decay_bucket(self, dte):
         if dte < 30:   return "short"
         if dte < 90:   return "medium"
@@ -69,8 +78,8 @@ class MirofishChecker:
     def _simulate_one(self, candidate):
         """
         Monte-Carlo Profitabilitäts-Simulation.
-        Misst: Anteil der Pfade wo Option bei Expiry profitabel ist
-        (Payoff > gezahlte Prämie) — nicht nur Strike-Berührung.
+        FIX #7: verwendet Tradier IV (annualisiert → täglich) statt realized vol.
+        Misst: Anteil der Pfade wo Option bei Expiry profitabel ist.
         """
         ticker    = candidate.get("ticker", "")
         dte       = candidate.get("dte", 45)
@@ -79,9 +88,20 @@ class MirofishChecker:
         premium   = float(candidate.get("mid_price", 0))
         news_raw  = candidate.get("news_raw_score", 5)
         cot_net   = candidate.get("cot_net", 0)
-        iv        = candidate.get("iv_pct", 30) / 100
 
-        sigma_daily, current_price, sector = self._get_market_params(ticker)
+        # FIX #7: Use Tradier implied vol (annualized) converted to daily
+        # This is consistent with what BS and monte_carlo.py use
+        iv_annual = candidate.get("iv_pct", 30) / 100   # e.g. 0.30 = 30%
+        sigma_daily = iv_annual / np.sqrt(252)           # annualized → daily
+
+        # Spot price from candidate (already resolved in main.py)
+        current_price = float(candidate.get("spot_price", 0))
+
+        # Fallback: get from yfinance if missing
+        if current_price <= 0:
+            _, current_price, sector = self._get_market_params(ticker)
+        else:
+            _, _, sector = self._get_market_params_sector_only(ticker)
 
         if current_price <= 0 or strike <= 0 or premium <= 0:
             return {**candidate, "mirofish_score": 0,
