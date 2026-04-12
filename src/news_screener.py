@@ -223,6 +223,16 @@ class NewsScreener:
         results = {}
         for seg in self.cfg["watchlist"]:
             xml = self._fetch_rss(RSS_URLS[seg])
+            print(f"  [{seg}] RSS length: {len(xml)} chars")
+            if xml:
+                # Show first pubDate for debugging
+                try:
+                    from xml.etree import ElementTree as ET2
+                    root2 = ET2.fromstring(xml)
+                    first = root2.find(".//item/pubDate")
+                    print(f"  [{seg}] First pubDate: {repr(first.text if first is not None else 'none')}")
+                except Exception:
+                    pass
             titles = self._parse_titles(xml)
             raw, headlines = self._score_titles(titles, KEYWORDS[seg])
             n_score = self._news_score(raw)
