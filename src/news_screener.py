@@ -163,26 +163,31 @@ class NewsScreener:
         titles = []
         if not xml_str:
             return titles
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=3)
         try:
             root = ET.fromstring(xml_str)
             for item in root.findall(".//item"):
                 t = item.findtext("title", "").strip()
+                if not t:
+                    continue
                 pub_str = item.findtext("pubDate", "").strip()
-                # Parse date — skip articles older than 7 days
-                pub_dt = None
-                for fmt in ("%a, %d %b %Y %H:%M:%S %Z",
-                            "%a, %d %b %Y %H:%M:%S +0000",
-                            "%a, %d %b %Y %H:%M:%S GMT"):
+                pub_dt  = None
+                for fmt in (
+                    "%a, %d %b %Y %H:%M:%S %Z",
+                    "%a, %d %b %Y %H:%M:%S +0000",
+                    "%a, %d %b %Y %H:%M:%S GMT",
+                    "%a, %d %b %Y %H:%M %Z",
+                ):
                     try:
                         pub_dt = datetime.datetime.strptime(pub_str[:31], fmt)
                         break
                     except ValueError:
                         continue
+                # If date unparseable → include (conservative)
+                # If date parseable and older than cutoff → skip
                 if pub_dt is not None and pub_dt < cutoff:
-                    continue   # skip stale articles
-                if t:
-                    titles.append(t.lower())
+                    continue
+                titles.append(t.lower())
         except ET.ParseError:
             pass
         return titles
