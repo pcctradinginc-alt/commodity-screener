@@ -50,10 +50,10 @@ class BacktestEngine:
         spread_cost_per_contract = max(mid_price * spread_pct, 0.05) * 100
         return spread_cost_per_contract * 2  # entry + exit
 
-    def find_similar(self, segment, iv_rank, dte):
+    def find_similar(self, segment, iv_rank, dte, option_type="call"):
         """
         Find historically similar setups and compute win-rate.
-        Returns dict with win_rate, sharpe, sample_size.
+        FIX #5: option_type parameter — PUT and CALL use correct payoff formula.
         """
         hist = self.raw_data.get("yfinance", {}).get(segment, [])
         if len(hist) < 60:
@@ -70,18 +70,22 @@ class BacktestEngine:
         trades = []
         for i in range(len(df) - dte - 5):
             row = df.iloc[i]
-            entry_price = float(row["close"]) * 0.03  # ~3% OTM option premium proxy
-
+            entry_spot  = float(row["close"])
+            entry_price = entry_spot * 0.03   # ~3% OTM premium proxy
             spread_cost = self.estimate_spread_cost(iv_rank, 600, entry_price)
 
-            future_idx = min(i + dte, len(df) - 1)
+            future_idx   = min(i + dte, len(df) - 1)
             future_price = float(df.iloc[future_idx]["close"])
-            entry_spot = float(row["close"])
 
-            strike = entry_spot * 1.05
-            payoff = max(future_price - strike, 0) * 100
+            # FIX #5: correct strike and payoff per option type
+            if option_type.lower() == "put":
+                strike  = entry_spot * 0.95   # 5% OTM put
+                payoff  = max(strike - future_price, 0) * 100
+            else:
+                strike  = entry_spot * 1.05   # 5% OTM call
+                payoff  = max(future_price - strike, 0) * 100
+
             net_pnl = payoff - entry_price * 100 - spread_cost
-
             trades.append(net_pnl)
 
         if len(trades) < self.bt_cfg["min_sample_size"]:
