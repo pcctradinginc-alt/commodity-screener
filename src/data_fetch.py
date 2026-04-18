@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-Jetzt mit historischen Optionspreisen für echtes Backtesting
+Vollständige Version mit historischem Options-Backtesting
 """
 
 import os
@@ -27,8 +27,7 @@ class DataFetcher:
 
     def _get(self, url, headers=None, params=None):
         try:
-            r = requests.get(url, headers=headers or {}, params=params,
-                             timeout=self.timeout)
+            r = requests.get(url, headers=headers or {}, params=params, timeout=self.timeout)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -37,40 +36,169 @@ class DataFetcher:
 
     def _get_text(self, url):
         try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
-                             timeout=self.timeout)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=self.timeout)
             return r.text
         except Exception as e:
             print(f"  Fetch error {url[:60]}: {e}")
             return ""
 
     # ── Tradier ──────────────────────────────────────────────────────
-    # ... (alle bestehenden Tradier-, Finnhub-, EIA-, COT-, FRED-, RSS- und yfinance-Methoden bleiben unverändert) ...
-    # (Ich habe sie hier aus Platzgründen gekürzt – der Rest des Originalcodes bleibt 1:1 erhalten)
+    def fetch_tradier_quote(self, ticker):
+        url = "https://api.tradier.com/v1/markets/quotes"
+        data = self._get(url, self.headers_tradier, {"symbols": ticker})
+        return data.get("quotes", {}).get("quote", {})
 
-    def fetch_tradier_quote(self, ticker): ...          # ← unverändert
-    def fetch_tradier_chain(self, ticker): ...          # ← unverändert
-    def _next_monthly_expiry(self, today, min_dte=21): ... # ← unverändert
-    def fetch_finnhub_quote(self, ticker): ...          # ← unverändert
-    def fetch_finnhub_candles(self, ticker, days=22): ... # ← unverändert
-    def fetch_eia(self, series_id): ...                 # ← unverändert
-    def fetch_cot(self, cot_code): ...                  # ← unverändert
-    def fetch_fred(self): ...                           # ← unverändert
-    def fetch_rss(self, query): ...                     # ← unverändert
-    def fetch_yfinance(self, ticker, period="2y"): ...  # ← unverändert
+    def fetch_tradier_chain(self, ticker):
+        today = datetime.date.today()
+        expiry = self._next_monthly_expiry(today, min_dte=21)
+        if not expiry:
+            print(f"  No valid expiry for {ticker}")
+            return []
+        url = "https://api.tradier.com/v1/markets/options/chains"
+        try:
+            r = requests.get(url, headers=self.headers_tradier,
+                             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
+                             timeout=self.timeout)
+            if r.status_code != 200:
+                print(f"  Tradier HTTP {r.status_code} for {ticker}")
+                return []
+            data = r.json()
+            chain = (data.get("options") or {}).get("option") or []
+            result = chain if isinstance(chain, list) else [chain]
+            print(f"  Tradier {ticker}: {len(result)} options (expiry {expiry})")
+            return result
+        except Exception as e:
+            print(f"  Tradier chain error {ticker}: {e}")
+            return []
 
-    # ── NEU: Historische Optionspreise (wichtigster Zusatz) ─────────
-    def fetch_historical_option(self, contract_symbol: str, period: str = "90d"):
-        """Holt echte historische Preise eines Optionskontrakts (z. B. USO241018C00050000)."""
+    def _next_monthly_expiry(self, today, min_dte=21):
+        for m in range(1, 5):
+            month = (today.month - 1 + m) % 12 + 1
+            year = today.year + ((today.month - 1 + m) // 12)
+            first = datetime.date(year, month, 1)
+            first_fri = first + datetime.timedelta(days=(4 - first.weekday()) % 7)
+            third_fri = first_fri + datetime.timedelta(weeks=2)
+            if (third_fri - today).days >= min_dte:
+                return third_fri.strftime("%Y-%m-%d")
+        return None
+
+    # ── Finnhub ──────────────────────────────────────────────────────
+    def fetch_finnhub_quote(self, ticker):
+        url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
+        return self._get(url)
+
+    def fetch_finnhub_candles(self, ticker, days=22):
+        try:
+            df = yf.download(ticker, period="1mo", auto_adjust=True, progress=False)
+            if df.empty:
+                return []
+            if hasattr(df.columns, "levels"):
+                df.columns = df.columns.get_level_values(-1)
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            result = []
+            for _, row in df.iterrows():
+                try:
+                    result.append({
+                        "h": float(row.get("high", row.get("High", 0))),
+                        "l": float(row.get("low", row.get("Low", 0))),
+                        "c": float(row.get("close", row.get("Close", 0))),
+                        "v": float(row.get("volume", row.get("Volume", 0))),
+                    })
+                except:
+                    continue
+            return result
+        except Exception as e:
+            print(f"  yfinance candles error {ticker}: {e}")
+            return []
+
+    # ── EIA, COT, FRED, RSS, yfinance (unverändert) ────────────────
+    def fetch_eia(self, series_id):
+        url = f"https://api.eia.gov/v2/seriesid/{series_id}"
+        data = self._get(url, params={"api_key": self.eia_key, "length": 4})
+        rows = (data.get("response") or {}).get("data") or []
+        if rows:
+            return {
+                "current": float(rows[0].get("value", 0)),
+                "previous": float(rows[1].get("value", 0)) if len(rows) > 1 else 0,
+                "delta": float(rows[0].get("value", 0)) - float(rows[1].get("value", 0)) if len(rows) > 1 else 0,
+                "as_of": rows[0].get("period", ""),
+            }
+        return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
+
+    def fetch_cot(self, cot_code):
+        if not cot_code:
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+        try:
+            import io
+            import csv
+            url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
+            resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            reader = csv.DictReader(io.StringIO(resp.text))
+            rows = [r for r in reader if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
+            if not rows:
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+            rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
+            r = rows[0]
+            comm_long = int(r.get("Comm_Positions_Long_All", 0) or 0)
+            comm_short = int(r.get("Comm_Positions_Short_All", 0) or 0)
+            return {
+                "net_commercial": comm_long - comm_short,
+                "long": comm_long,
+                "short": comm_short,
+                "as_of": r.get("Report_Date_as_YYYY-MM-DD", ""),
+            }
+        except Exception as e:
+            print(f"  COT fetch error {cot_code}: {e}")
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+
+    def fetch_fred(self):
+        results = {}
+        series = {"fed_funds_rate": "FEDFUNDS", "real_yield_10y": "DFII10", "dxy": "DTWEXBGS"}
+        for name, sid in series.items():
+            url = "https://api.stlouisfed.org/fred/series/observations"
+            data = self._get(url, params={
+                "series_id": sid, "api_key": self.fred_key,
+                "sort_order": "desc", "limit": 2, "file_type": "json"
+            })
+            obs = data.get("observations", [])
+            if obs:
+                try:
+                    results[name] = float(obs[0]["value"])
+                except:
+                    results[name] = 0.05
+            else:
+                results[name] = 0.05
+        return results
+
+    def fetch_rss(self, query):
+        url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl=en-US&gl=US&ceid=US:en"
+        return self._get_text(url)
+
+    def fetch_yfinance(self, ticker, period="2y"):
+        try:
+            df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+            if df.empty:
+                return []
+            if hasattr(df.columns, "levels"):
+                df.columns = df.columns.get_level_values(-1)
+            df.columns = [str(c).strip() for c in df.columns]
+            df = df.reset_index()
+            return df.to_dict("records")
+        except Exception as e:
+            print(f"  yfinance error {ticker}: {e}")
+            return []
+
+    # ── NEU: Historische Optionspreise ───────────────────────────────
+    def fetch_historical_option(self, contract_symbol: str, period: str = "120d"):
         try:
             print(f"    Fetching historical option data for {contract_symbol} ({period})...")
             opt = yf.Ticker(contract_symbol)
             hist = opt.history(period=period, auto_adjust=True, progress=False)
             if hist.empty:
-                print(f"    ⚠️  No historical data for {contract_symbol}")
+                print(f"    ⚠️ No historical data for {contract_symbol}")
                 return []
             hist = hist.reset_index()
-            # Nur relevante Spalten
             result = hist[["Date", "Open", "High", "Low", "Close", "Volume"]].to_dict("records")
             print(f"    ✅ {len(result)} days of real option prices for {contract_symbol}")
             return result
@@ -78,22 +206,52 @@ class DataFetcher:
             print(f"    Hist option {contract_symbol} error: {e}")
             return []
 
-    # ── Main fetch_all (unverändert bis auf neuen Aufruf später in main.py) ──
+    # ── Main fetch_all ───────────────────────────────────────────────
     def fetch_all(self):
-        # ... (der gesamte ursprüngliche fetch_all-Code bleibt identisch) ...
-        # Wir rufen die neuen historischen Daten später in main.py auf, damit wir die Contract-Symbole schon haben.
+        cfg_wl = self.cfg["watchlist"]
+        all_tickers = list({t for seg in cfg_wl.values() for t in seg["tickers"]})
         result = {
-            "quotes": {},
-            "candles": {},
-            "options_chains": {},
-            "tradier_quotes": {},
-            "eia": {},
-            "cot": {},
-            "fred": {},
-            "rss": {},
-            "yfinance": {},
-            "as_of": {},
-            "historical_options": {},   # ← NEU
+            "quotes": {}, "candles": {}, "options_chains": {}, "tradier_quotes": {},
+            "eia": {}, "cot": {}, "fred": {}, "rss": {}, "yfinance": {},
+            "as_of": {}, "historical_options": {}
         }
-        # ... Rest wie bisher ...
+
+        def fetch_ticker_data(ticker):
+            print(f"    Fetching {ticker}...")
+            return {
+                "ticker": ticker,
+                "quote": self.fetch_finnhub_quote(ticker),
+                "tquote": self.fetch_tradier_quote(ticker),
+                "candles": self.fetch_finnhub_candles(ticker),
+                "chain": self.fetch_tradier_chain(ticker),
+            }
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(fetch_ticker_data, t): t for t in all_tickers}
+            for f in as_completed(futures):
+                d = f.result()
+                t = d["ticker"]
+                result["quotes"][t] = d["quote"]
+                result["tradier_quotes"][t] = d["tquote"]
+                result["candles"][t] = d["candles"]
+                result["options_chains"][t] = d["chain"]
+
+        result["fred"] = self.fetch_fred()
+
+        for seg, seg_cfg in cfg_wl.items():
+            if seg_cfg.get("eia_series"):
+                eia_data = self.fetch_eia(seg_cfg["eia_series"][0])
+                result["eia"][seg] = eia_data
+                result["as_of"][f"eia_{seg}"] = eia_data.get("as_of", "")
+
+            cot_data = self.fetch_cot(seg_cfg["cot_code"])
+            result["cot"][seg] = cot_data
+            result["as_of"][f"cot_{seg}"] = cot_data.get("as_of", "")
+
+            result["rss"][seg] = self.fetch_rss(seg_cfg["rss_query"])
+            result["yfinance"][seg] = self.fetch_yfinance(seg_cfg["tickers"][0])
+
+        result["as_of"]["tradier"] = datetime.datetime.utcnow().isoformat() + "Z"
+        result["as_of"]["fred"] = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
         return result
