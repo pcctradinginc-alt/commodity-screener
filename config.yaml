@@ -22,7 +22,7 @@ watchlist:
     smile_factor: 0.10
 
 thresholds:
-  data_health_min: 65
+  data_health_min: 55
   segment_score_min: 4
   mirofish_score_min: 25
   mirofish_timeout_seconds: 60
