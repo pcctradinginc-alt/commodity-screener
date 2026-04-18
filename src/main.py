@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Endgültige Version mit vollem NumPy-JSON-Fix
+Endgültige Version mit sauberem JSON-Fix (bool bleibt bool)
 """
 
 import json
@@ -10,7 +10,7 @@ import time
 import datetime
 import traceback
 import yaml
-import numpy as np   # ← WICHTIG für NumPy-Typen
+import numpy as np
 
 from data_fetch import DataFetcher
 from preprocessing import DataHealthChecker
@@ -48,10 +48,10 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """ULTIMATIVER JSON-FIX – behandelt NumPy-Typen, bool, datetime etc."""
+    """Sauberer JSON-Fix – behandelt NumPy-Typen korrekt"""
     def convert(obj):
         if isinstance(obj, (bool, np.bool_)):
-            return int(obj)                    # True/False und np.bool_ → 1/0
+            return bool(obj)                    # True/False bleibt bool
         elif isinstance(obj, (int, np.integer)):
             return int(obj)
         elif isinstance(obj, (float, np.floating)):
@@ -62,6 +62,10 @@ def save_last_run(artifact):
             return [convert(i) for i in obj]
         elif isinstance(obj, (datetime.date, datetime.datetime)):
             return obj.isoformat()
+        elif obj is None:
+            return None
+        elif isinstance(obj, set):
+            return list(obj)
         else:
             return obj
 
