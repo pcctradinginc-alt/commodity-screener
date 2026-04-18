@@ -1,6 +1,6 @@
 """
 Claude Haiku Preselection — reduziert Kandidaten auf Top-20
-JETZT MIT ECHTEM SENTIMENT (Schritt 4)
+JETZT MIT SPOT-PREIS-KONTEXT (Schritt 4)
 """
 
 import os
@@ -17,7 +17,7 @@ class HaikuPreselect:
         if not candidates:
             return []
 
-        # Tabelle für Haiku
+        # Erweiterte Tabelle mit Spot-Preis
         table = []
         for i, c in enumerate(candidates):
             table.append({
@@ -30,6 +30,7 @@ class HaikuPreselect:
                 "dte": c["dte"],
                 "delta": c["delta"],
                 "mid": c["mid_price"],
+                "spot_price": c.get("spot_price", "N/A"),        # ← NEU
                 "iv_pct": c["iv_pct"],
                 "iv_rank": c["iv_rank"],
                 "oi": c["oi"],
@@ -41,34 +42,38 @@ class HaikuPreselect:
                 "prophet_direction": c.get("prophet_direction", "neutral"),
             })
 
-        prompt = f"""You are a quantitative options analyst. Analyze these {len(table)} option candidates
-and select the best 20 (or fewer).
+        prompt = f"""You are a quantitative commodity options analyst.
+Heute ist {datetime.date.today().isoformat()}.
 
-Priority criteria (in order):
-1. Liquidity: OI > 1000 and volume > 50 preferred
-2. Edge score > 50
-3. MC expected value positive
-4. IV rank > 40
-5. Delta 0.25-0.40
+Analysiere die folgenden {len(table)} Optionen und wähle die besten 20 aus.
 
-Zusätzlich: Bewerte das Sentiment der News für das Segment (bullish / bearish / neutral).
+WICHTIG: Berücksichtige bei der Bewertung immer den aktuellen Spot-Preis des Underlyings!
+
+Priority criteria (in dieser Reihenfolge):
+1. Liquidity: OI > 1000 und Volume > 50 bevorzugt
+2. Edge Score > 50
+3. MC Expected Value positiv
+4. IV-Rank > 40
+5. Delta idealerweise 0.25–0.40
+
+Zusätzlich: Bewerte das News-Sentiment im Kontext des aktuellen Spot-Preises.
 
 Candidates JSON:
 {json.dumps(table, indent=2)}
 
-Respond ONLY with valid JSON:
+Antworte NUR mit validem JSON, nichts anderes:
 {{
   "top20": [
-    {{"rank": <original_rank>, "symbol": "...", "haiku_rank": 1, "haiku_reason": "one sentence with sentiment"}}
+    {{"rank": <original_rank>, "symbol": "...", "haiku_rank": 1, "haiku_reason": "kurzer Satz mit Spot-Preis-Kontext"}}
   ],
   "eliminated_count": <number>,
-  "elimination_summary": "brief reason"
+  "elimination_summary": "kurze Zusammenfassung"
 }}"""
 
         try:
             response = self.client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1000,
+                max_tokens=1200,
                 system="You are a quantitative options analyst. Respond only in valid JSON.",
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -85,4 +90,4 @@ Respond ONLY with valid JSON:
 
         except Exception as e:
             print(f"  Haiku error: {e} — using edge score fallback")
-            return sorted(candidates, key=lambda x: x["edge_score"], reverse=True)[:20]
+            return sorted(candidates, key=lambda x: x.get("edge_score", 0), reverse=True)[:20]
