@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Voll funktionsfähig – mit robustem JSON-Fix (bool → int)
+Endgültige Version mit 100% robustem JSON-Fix (rekursiv)
 """
 
 import json
@@ -47,14 +47,21 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """Bulletproof JSON-Save – wandelt alle bool-Werte in int um"""
-    def default_serializer(o):
-        if isinstance(o, bool):
-            return int(o)          # True → 1, False → 0
-        raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+    """Rekursiver JSON-Fix – wandelt ALLE bool-Werte in int um"""
+    def convert(obj):
+        if isinstance(obj, bool):
+            return int(obj)                    # True → 1, False → 0
+        elif isinstance(obj, dict):
+            return {k: convert(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert(i) for i in obj]
+        else:
+            return obj
+
+    artifact = convert(artifact)
 
     with open(LAST_RUN_PATH, "w") as f:
-        json.dump(artifact, f, indent=2, default=default_serializer)
+        json.dump(artifact, f, indent=2)
 
 
 def update_expired_positions(positions, tradier_key):
