@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Endgültige Version mit 100% robustem JSON-Fix (rekursiv)
+Endgültige Version mit 100% sicherem JSON-Fix
 """
 
 import json
@@ -47,7 +47,7 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """Rekursiver JSON-Fix – wandelt ALLE bool-Werte in int um"""
+    """100% sicherer JSON-Fix – wandelt rekursiv alle bool-Werte in int um"""
     def convert(obj):
         if isinstance(obj, bool):
             return int(obj)                    # True → 1, False → 0
@@ -58,7 +58,7 @@ def save_last_run(artifact):
         else:
             return obj
 
-    artifact = convert(artifact)
+    artifact = convert(artifact)               # ← hier wird alles bereinigt
 
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
