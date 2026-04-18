@@ -1,6 +1,6 @@
 """
-Commodity Options Screener v3.2 – MIT ECHTEM BACKTESTING
-Jetzt mit realen historischen Optionspreisen (Step 2)
+Commodity Options Screener v3.2 – ECHTES BACKTESTING AKTIVIERT
+Jetzt mit realen historischen Optionspreisen über yfinance
 """
 
 import json
@@ -17,7 +17,7 @@ from news_screener import NewsScreener
 from models.prophet_forecaster import ProphetForecaster
 from models.black_scholes import BlackScholesCalculator
 from models.monte_carlo import MonteCarloSimulator
-from models.backtest_pandas import BacktestEngine          # ← bleibt gleich
+from models.backtest_pandas import BacktestEngine
 from analysis.haiku_preselect import HaikuPreselect
 from analysis.mirofish_check import MirofishChecker
 from analysis.claude_deep_analysis import ClaudeDeepAnalysis
@@ -91,7 +91,7 @@ def run_pipeline():
         "open_positions_count": len(positions["open_positions"]),
         "errors": [],
         "runtime_seconds": 0,
-        "real_backtest_used": True,          # ← NEU
+        "real_backtest_used": True,
     }
 
     try:
@@ -143,7 +143,7 @@ def run_pipeline():
         # ── Stage 4: Quantitative Models + ECHTES HISTORISCHES BACKTESTING ──
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
-        raw_data["historical_options"] = {}   # ← NEU: Container für echte Options-Historie
+        raw_data["historical_options"] = {}   # Container für echte Options-Historie
 
         for seg in qualifiers:
             ticker = cfg["watchlist"][seg]["tickers"][0]
@@ -155,14 +155,14 @@ def run_pipeline():
 
             bs_calc = BlackScholesCalculator(cfg)
             mc_sim = MonteCarloSimulator(cfg)
-            backtester = BacktestEngine(cfg, raw_data)   # ← wird später mit realen Daten gefüttert
+            backtester = BacktestEngine(cfg, raw_data)
 
             chain = raw_data.get("options_chains", {}).get(ticker, [])
             filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0,
                            "mid": 0, "spread": 0, "passed": 0}
             today_date = datetime.date.today()
 
-            # Spot price (unverändert)
+            # Spot price
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
             spot = (
@@ -174,14 +174,15 @@ def run_pipeline():
             if spot <= 0:
                 print(f"  WARNING: No valid spot price for {ticker} — skipping segment")
                 continue
+            print(f"  Spot {ticker}: ${spot:.2f}")
 
             for option in chain:
-                # ... (der gesamte Filter-Block ist identisch mit v3.1 – unverändert) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
                 ask = option.get("ask", 0) or 0
 
+                # DTE berechnen
                 dte = option.get("dte", None)
                 if dte is None:
                     exp_str = option.get("expiration_date", "")
@@ -195,6 +196,7 @@ def run_pipeline():
                         dte = 0
                 dte = int(dte or 0)
 
+                # Mid-Price
                 if bid > 0 and ask > 0:
                     mid = (bid + ask) / 2
                 elif ask > 0:
@@ -208,19 +210,25 @@ def run_pipeline():
 
                 iv = float(greeks.get("mid_iv", 0) or 0) or 0.30
 
-                # Filter (unverändert)
-                if oi < thr["options_oi_min"]: filter_stats["oi"] += 1; continue
-                if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]): filter_stats["dte"] += 1; continue
-                if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]): filter_stats["delta"] += 1; continue
-                if mid == 0: filter_stats["mid"] += 1; continue
+                # Filter
+                if oi < thr["options_oi_min"]:
+                    filter_stats["oi"] += 1; continue
+                if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]):
+                    filter_stats["dte"] += 1; continue
+                if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]):
+                    filter_stats["delta"] += 1; continue
+                if mid == 0:
+                    filter_stats["mid"] += 1; continue
 
                 if spot > 0:
                     intrinsic = max(spot - option.get("strike", 0), 0) if option.get("option_type") == "call" else max(option.get("strike", 0) - spot, 0)
-                    if intrinsic > 0 and mid < intrinsic * 0.5: filter_stats["mid"] += 1; continue
+                    if intrinsic > 0 and mid < intrinsic * 0.5:
+                        filter_stats["mid"] += 1; continue
 
                 if bid > 0 and ask > 0:
                     spread_pct = (ask - bid) / mid
-                    if spread_pct > thr["options_bid_ask_max_pct"]: filter_stats["spread"] += 1; continue
+                    if spread_pct > thr["options_bid_ask_max_pct"]:
+                        filter_stats["spread"] += 1; continue
 
                 filter_stats["passed"] += 1
 
@@ -228,25 +236,28 @@ def run_pipeline():
                 if option.get("symbol") in open_syms:
                     continue
 
-                # ── NEU: Historische Optionsdaten holen ─────────────────────
+                # ── NEU: Echte historische Optionspreise holen ─────────────
                 contract_symbol = option.get("symbol", "")
                 if contract_symbol:
                     hist_data = fetcher.fetch_historical_option(contract_symbol, period="120d")
                     raw_data["historical_options"][contract_symbol] = hist_data
 
-                # Quantitative Berechnungen (unverändert)
+                # Quantitative Berechnungen
                 r = raw_data.get("fred", {}).get("fed_funds_rate", 0.05)
                 iv_adj = bs_calc.smile_adjusted_iv(iv, spot, option["strike"], smile)
-                fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj, option.get("option_type", "call"))
+                fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj,
+                                        option.get("option_type", "call"))
                 edge = (mid - fv) / mid * 100 if mid > 0 else 0
 
                 ev, win_prob = mc_sim.simulate(
-                    spot, option["strike"], r, dte/252, iv_adj, mid,
-                    forecast.get("drift", 0), option.get("option_type", "call")
+                    spot, option["strike"], r,
+                    dte/252, iv_adj, mid,
+                    forecast.get("drift", 0),
+                    option.get("option_type", "call"),
                 )
 
-                # ── NEU: ECHTES Backtesting statt Spot-Proxy ───────────────
-                bt = backtester.find_similar_real({**option, **{
+                # ── NEU: Echtes Backtesting mit realen Optionspreisen ─────
+                candidate_for_bt = {
                     "symbol": contract_symbol,
                     "segment": seg,
                     "ticker": ticker,
@@ -260,9 +271,10 @@ def run_pipeline():
                     "iv_pct": iv * 100,
                     "iv_rank": segment_scores[seg].get("iv_rank", 0),
                     "oi": oi,
-                }})
+                }
+                bt = backtester.find_similar_real(candidate_for_bt)
 
-                # Edge-Score (unverändert)
+                # Edge-Score
                 ev_pct = ev / max(mid, 0.01) * 100
                 ev_normalized = max(min(ev_pct, 100), -100)
                 ev_component = (ev_normalized + 100) / 2
@@ -275,4 +287,110 @@ def run_pipeline():
                 all_candidates.append({
                     "symbol": contract_symbol,
                     "segment": seg,
-                    "ticker": ticker
+                    "ticker": ticker,
+                    "spot_price": round(spot, 2),
+                    "strike": option.get("strike"),
+                    "expiry": option.get("expiration_date", ""),
+                    "option_type": option.get("option_type", "call"),
+                    "dte": dte,
+                    "delta": round(delta, 3),
+                    "mid_price": round(mid, 2),
+                    "iv_pct": round(iv * 100, 1),
+                    "iv_rank": segment_scores[seg].get("iv_rank", 0),
+                    "oi": oi,
+                    "volume": volume,
+                    "fair_value_bs": round(fv, 2),
+                    "edge_score": round(es, 1),
+                    "mc_ev": round(ev, 2),
+                    "mc_win_prob": round(win_prob, 3),
+                    "hist_win_rate": round(bt.get("win_rate", 0), 3),
+                    "hist_sharpe": round(bt.get("sharpe", 0), 2),
+                    "hist_sample_size": bt.get("sample_size", 0),
+                    "prophet_drift": round(forecast.get("drift", 0), 4),
+                    "prophet_confidence": round(forecast.get("confidence", 0), 3),
+                    "mirofish_score": 0,
+                    "mirofish_confidence": "none",
+                    "real_options_data": bt.get("real_options_data", False),
+                })
+
+            print(f"  Filter stats {ticker}: {filter_stats}")
+
+        artifact["candidates_pre_haiku"] = len(all_candidates)
+        print(f"  Total candidates after filter: {len(all_candidates)}")
+
+        if not all_candidates:
+            print("  No candidates after quantitative filter")
+            save_last_run(artifact)
+            return False
+
+        # ── Stage 5: Haiku Preselection ──────────────────────────────
+        print("\nStage 5: Haiku preselection...")
+        haiku = HaikuPreselect(cfg)
+        top20 = haiku.select(all_candidates)
+        artifact["candidates_post_haiku"] = len(top20)
+        print(f"  Haiku selected: {len(top20)} candidates")
+
+        # ── Stage 6: Mirofish ────────────────────────────────────────
+        print("\nStage 6: Mirofish simulation...")
+        mirofish = MirofishChecker(cfg)
+        mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
+        artifact["mirofish_timeouts"] = timeouts
+        artifact["mirofish_available"] = mirofish.available
+
+        finalists = [
+            r for r in mirofish_results
+            if r.get("mirofish_score", 0) > thr["mirofish_score_min"]
+        ]
+        finalists.sort(key=lambda x: x.get("mirofish_score", 0), reverse=True)
+        artifact["candidates_post_mirofish"] = len(finalists)
+        print(f"  Mirofish passed: {len(finalists)} candidates (timeouts: {timeouts})")
+
+        if not finalists:
+            print("  No candidates passed Mirofish gate")
+            save_last_run(artifact)
+            return False
+
+        # ── Stage 7: Claude Opus Final Analysis ─────────────────────
+        print("\nStage 7: Claude Opus final analysis...")
+        analyst = ClaudeDeepAnalysis(cfg)
+        context = {
+            "raw_data": raw_data,
+            "segment_scores": segment_scores,
+            "positions": positions,
+            "health": health,
+        }
+        recommendation = analyst.analyze(finalists[:8], context)
+        artifact["final_recommendation"] = recommendation
+        print(f"  Recommendation: {recommendation.get('symbol')} "
+              f"Conviction {recommendation.get('conviction')}/10")
+
+        # ── Stage 8: HTML Card + Email ───────────────────────────────
+        print("\nStage 8: Generating HTML card and sending email...")
+        gen = HTMLCardGenerator(cfg)
+        html = gen.generate(recommendation, segment_scores, health, positions)
+
+        sender = EmailSender(cfg)
+        sender.send(html, recommendation)
+        print("  Email sent successfully")
+
+        # ── Update positions ─────────────────────────────────────────
+        positions = update_expired_positions(positions, os.environ.get("TRADIER_KEY", ""))
+        save_positions(positions)
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        artifact["errors"].append(str(e))
+        print(f"\nPIPELINE ERROR: {e}\n{tb}")
+
+    finally:
+        artifact["runtime_seconds"] = round(time.time() - start_time)
+        save_last_run(artifact)
+        print(f"\nRun complete in {artifact['runtime_seconds']}s — ECHTES BACKTESTING AKTIV")
+        print(f"Errors: {artifact['errors'] or 'none'}")
+
+    return not artifact["errors"]
+
+
+if __name__ == "__main__":
+    ok = run_pipeline()
+    sys.exit(0 if ok else 1)
