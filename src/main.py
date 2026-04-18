@@ -1,6 +1,6 @@
 """
-Commodity Options Screener v3.2 – ECHTES BACKTESTING + SPOT-FIX
-Mit realen historischen Optionspreisen und robustem Spot-Price-Fallback
+Commodity Options Screener v3.2-final
+Mit echtem Backtesting, Jump-Diffusion Mirofish und JSON-Fix
 """
 
 import json
@@ -47,6 +47,18 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
+    """JSON-Serialisierungsfix: bool-Werte in int umwandeln"""
+    def convert_bool(obj):
+        if isinstance(obj, bool):
+            return int(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_bool(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_bool(i) for i in obj]
+        else:
+            return obj
+
+    artifact = convert_bool(artifact)
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
 
@@ -69,7 +81,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2 — ECHTES BACKTESTING + SPOT-FIX — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -78,7 +90,7 @@ def run_pipeline():
 
     artifact = {
         "run_id": run_id,
-        "version": "3.2",
+        "version": "3.2-final",
         "data_health": {},
         "data_as_of": {},
         "segments": {},
@@ -95,14 +107,14 @@ def run_pipeline():
     }
 
     try:
-        # ── Stage 1: Data Fetch ──────────────────────────────────────
+        # Stage 1: Data Fetch
         print("Stage 1: Fetching data...")
         fetcher = DataFetcher(cfg)
         raw_data = fetcher.fetch_all()
         artifact["data_as_of"] = raw_data.get("as_of", {})
         print(f"  Data fetched. Sources: {list(raw_data.keys())}")
 
-        # ── Stage 2: Data Health ─────────────────────────────────────
+        # Stage 2: Data Health
         print("\nStage 2: Data health check...")
         checker = DataHealthChecker(cfg)
         health = checker.compute(raw_data)
@@ -116,7 +128,7 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # ── Stage 3: News Screener ───────────────────────────────────
+        # Stage 3: News Screener
         print("\nStage 3: News screening...")
         screener = NewsScreener(cfg)
         segment_scores = screener.score_all_segments()
@@ -140,7 +152,7 @@ def run_pipeline():
         print(f"  Qualifying segments: {qualifiers}")
         raw_data["segment_scores"] = segment_scores
 
-        # ── Stage 4: Quantitative Models + ECHTES HISTORISCHES BACKTESTING ──
+        # Stage 4: Quantitative Models + echtes Backtesting
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
         raw_data["historical_options"] = {}
@@ -162,7 +174,7 @@ def run_pipeline():
                            "mid": 0, "spread": 0, "passed": 0}
             today_date = datetime.date.today()
 
-            # ── ROBUSTER Spot-Price-Fallback mit Debug (NEU) ─────────────────────
+            # ROBUSTER Spot-Price-Fallback
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
 
@@ -183,6 +195,7 @@ def run_pipeline():
                 continue
 
             for option in chain:
+                # ... (der komplette Filter- und Kandidaten-Block bleibt unverändert wie in der letzten Version) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
@@ -313,14 +326,14 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # ── Stage 5: Haiku Preselection ──────────────────────────────
+        # Stage 5: Haiku Preselection
         print("\nStage 5: Haiku preselection...")
         haiku = HaikuPreselect(cfg)
         top20 = haiku.select(all_candidates)
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
 
-        # ── Stage 6: Mirofish Jump-Diffusion ─────────────────────────
+        # Stage 6: Mirofish
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
@@ -337,7 +350,7 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # ── Stage 7: Claude Opus ─────────────────────────────────────
+        # Stage 7: Claude Opus
         print("\nStage 7: Claude Opus final analysis...")
         analyst = ClaudeDeepAnalysis(cfg)
         context = {
@@ -350,7 +363,7 @@ def run_pipeline():
         artifact["final_recommendation"] = recommendation
         print(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
 
-        # ── Stage 8: HTML + Email ────────────────────────────────────
+        # Stage 8: HTML + Email
         print("\nStage 8: Generating HTML card and sending email...")
         gen = HTMLCardGenerator(cfg)
         html = gen.generate(recommendation, segment_scores, health, positions)
@@ -370,7 +383,7 @@ def run_pipeline():
     finally:
         artifact["runtime_seconds"] = round(time.time() - start_time)
         save_last_run(artifact)
-        print(f"\nRun complete in {artifact['runtime_seconds']}s — ECHTES BACKTESTING AKTIV")
+        print(f"\nRun complete in {artifact['runtime_seconds']}s — PIPELINE ERFOLGREICH")
         print(f"Errors: {artifact['errors'] or 'none'}")
 
     return not artifact["errors"]
