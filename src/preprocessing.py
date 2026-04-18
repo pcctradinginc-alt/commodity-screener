@@ -1,7 +1,5 @@
 """
-Data Health Checker
-FIX-3: Z-Score threshold 4 → 5.5 for commodity fat tails
-FIX-1: Latency penalty adjusted for pre-market workflow timing
+Data Health Checker – jetzt mit vollem Debug-Output
 """
 
 import numpy as np
@@ -22,6 +20,13 @@ class DataHealthChecker:
                  0.3 * completeness +
                  0.3 * (1 - outlier)) * 100
 
+        print(f"\n=== DATA HEALTH BREAKDOWN ===")
+        print(f"Latency penalty     : {latency:.3f} → {0.4*(1-latency)*100:5.1f} Punkte")
+        print(f"Completeness        : {completeness:.3f} → {0.3*completeness*100:5.1f} Punkte")
+        print(f"Outlier penalty     : {outlier:.3f} → {0.3*(1-outlier)*100:5.1f} Punkte")
+        print(f"→ Gesamt-Score      : {score:.1f}/100")
+        print(f"=============================\n")
+
         warnings = []
         if latency > 0.2:
             warnings.append(f"Latency penalty: {latency:.2f}")
@@ -41,11 +46,6 @@ class DataHealthChecker:
         }
 
     def _latency_penalty(self, raw_data):
-        """
-        FIX-1: Workflow runs at 06:00 UTC (08:00 CEST).
-        US markets close at ~22:00 CEST = ~20:00 UTC previous day.
-        Normal data age = ~10 hours. This is expected, not penalized.
-        """
         now = datetime.datetime.utcnow()
         penalty = 0.0
 
@@ -86,18 +86,13 @@ class DataHealthChecker:
             bool(raw_data.get("eia")),
             bool(raw_data.get("yfinance")),
             bool(raw_data.get("candles")),
+            bool(raw_data.get("historical_options")),   # ← NEU
         ]
         crit_score = sum(critical) / len(critical)
         opt_score = sum(optional) / len(optional) if optional else 1.0
         return crit_score * 0.8 + opt_score * 0.2
 
     def _outlier_penalty(self, raw_data):
-        """
-        FIX-3: Z-score threshold raised to 5.5.
-        Commodity markets have fat tails — legitimate breakout moves
-        (e.g. +8% WTI on OPEC shock) were incorrectly flagged at Z=4.
-        Z=5.5 only catches genuine data errors, not real market moves.
-        """
         all_prices = []
         high_vol_flag = False
 
