@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-Vollständige Version mit historischem Options-Backtesting
+Vollständige Version mit fix für yfinance historical options
 """
 
 import os
@@ -82,7 +82,7 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
-    # ── Finnhub ──────────────────────────────────────────────────────
+    # ── Finnhub & yfinance ───────────────────────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -111,7 +111,7 @@ class DataFetcher:
             print(f"  yfinance candles error {ticker}: {e}")
             return []
 
-    # ── EIA, COT, FRED, RSS, yfinance (unverändert) ────────────────
+    # ── EIA, COT, FRED, RSS, yfinance history ───────────────────────
     def fetch_eia(self, series_id):
         url = f"https://api.eia.gov/v2/seriesid/{series_id}"
         data = self._get(url, params={"api_key": self.eia_key, "length": 4})
@@ -189,12 +189,12 @@ class DataFetcher:
             print(f"  yfinance error {ticker}: {e}")
             return []
 
-    # ── NEU: Historische Optionspreise ───────────────────────────────
+    # ── Historische Optionspreise (FIX: progress entfernt) ───────────
     def fetch_historical_option(self, contract_symbol: str, period: str = "120d"):
         try:
             print(f"    Fetching historical option data for {contract_symbol} ({period})...")
             opt = yf.Ticker(contract_symbol)
-            hist = opt.history(period=period, auto_adjust=True, progress=False)
+            hist = opt.history(period=period, auto_adjust=True)   # progress entfernt
             if hist.empty:
                 print(f"    ⚠️ No historical data for {contract_symbol}")
                 return []
