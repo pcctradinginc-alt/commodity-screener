@@ -5,6 +5,7 @@ JETZT MIT SPOT-PREIS-KONTEXT (Schritt 4)
 
 import os
 import json
+import datetime                    # ← WICHTIG: fehlte vorher
 import anthropic
 
 
