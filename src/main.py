@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Voll funktionsfähig mit echtem Backtesting, Jump-Diffusion und JSON-Fix
+Voll funktionsfähig mit echtem Backtesting, Jump-Diffusion Mirofish und robustem JSON-Fix
 """
 
 import json
@@ -47,10 +47,10 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """JSON-Fix: Alle bool-Werte in int umwandeln"""
+    """Bulletproof JSON-Fix: Alle bool-Werte werden in int umgewandelt"""
     def convert(obj):
         if isinstance(obj, bool):
-            return int(obj)
+            return int(obj)          # True → 1, False → 0
         elif isinstance(obj, dict):
             return {k: convert(v) for k, v in obj.items()}
         elif isinstance(obj, list):
@@ -59,6 +59,7 @@ def save_last_run(artifact):
             return obj
 
     artifact = convert(artifact)
+
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
 
@@ -244,8 +245,10 @@ def run_pipeline():
                 fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj, option.get("option_type", "call"))
                 edge = (mid - fv) / mid * 100 if mid > 0 else 0
 
-                ev, win_prob = mc_sim.simulate(spot, option["strike"], r, dte/252, iv_adj, mid,
-                                               forecast.get("drift", 0), option.get("option_type", "call"))
+                ev, win_prob = mc_sim.simulate(
+                    spot, option["strike"], r, dte/252, iv_adj, mid,
+                    forecast.get("drift", 0), option.get("option_type", "call")
+                )
 
                 candidate_for_bt = {
                     "symbol": contract_symbol,
