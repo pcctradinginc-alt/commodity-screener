@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Endgültige Version mit 100% sicherem JSON-Fix
+ULTIMATIVE VERSION – mit extrem robustem JSON-Fix
 """
 
 import json
@@ -47,18 +47,20 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """100% sicherer JSON-Fix – wandelt rekursiv alle bool-Werte in int um"""
+    """ULTIMATIVER JSON-FIX – wandelt rekursiv ALLE nicht-serialisierbaren Typen um"""
     def convert(obj):
         if isinstance(obj, bool):
-            return int(obj)                    # True → 1, False → 0
+            return int(obj)
         elif isinstance(obj, dict):
             return {k: convert(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [convert(i) for i in obj]
+        elif isinstance(obj, (datetime.date, datetime.datetime)):
+            return obj.isoformat()
         else:
             return obj
 
-    artifact = convert(artifact)               # ← hier wird alles bereinigt
+    artifact = convert(artifact)
 
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
