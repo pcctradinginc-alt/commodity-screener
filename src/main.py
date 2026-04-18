@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Mit echtem Backtesting, Jump-Diffusion Mirofish und JSON-Fix
+Voll funktionsfähig mit echtem Backtesting, Jump-Diffusion und JSON-Fix
 """
 
 import json
@@ -47,18 +47,18 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """JSON-Serialisierungsfix: bool-Werte in int umwandeln"""
-    def convert_bool(obj):
+    """JSON-Fix: Alle bool-Werte in int umwandeln"""
+    def convert(obj):
         if isinstance(obj, bool):
             return int(obj)
         elif isinstance(obj, dict):
-            return {k: convert_bool(v) for k, v in obj.items()}
+            return {k: convert(v) for k, v in obj.items()}
         elif isinstance(obj, list):
-            return [convert_bool(i) for i in obj]
+            return [convert(i) for i in obj]
         else:
             return obj
 
-    artifact = convert_bool(artifact)
+    artifact = convert(artifact)
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
 
@@ -107,14 +107,12 @@ def run_pipeline():
     }
 
     try:
-        # Stage 1: Data Fetch
         print("Stage 1: Fetching data...")
         fetcher = DataFetcher(cfg)
         raw_data = fetcher.fetch_all()
         artifact["data_as_of"] = raw_data.get("as_of", {})
         print(f"  Data fetched. Sources: {list(raw_data.keys())}")
 
-        # Stage 2: Data Health
         print("\nStage 2: Data health check...")
         checker = DataHealthChecker(cfg)
         health = checker.compute(raw_data)
@@ -128,7 +126,6 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # Stage 3: News Screener
         print("\nStage 3: News screening...")
         screener = NewsScreener(cfg)
         segment_scores = screener.score_all_segments()
@@ -138,11 +135,7 @@ def run_pipeline():
             seg for seg, data in segment_scores.items()
             if data["total_score"] >= thr["segment_score_min"]
         ]
-        qualifiers = sorted(
-            qualifiers,
-            key=lambda s: segment_scores[s]["total_score"],
-            reverse=True
-        )[:thr["max_qualifiers"]]
+        qualifiers = sorted(qualifiers, key=lambda s: segment_scores[s]["total_score"], reverse=True)[:thr["max_qualifiers"]]
 
         if not qualifiers:
             print("  No segments qualify today — pipeline ends")
@@ -170,11 +163,9 @@ def run_pipeline():
             backtester = BacktestEngine(cfg, raw_data)
 
             chain = raw_data.get("options_chains", {}).get(ticker, [])
-            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0,
-                           "mid": 0, "spread": 0, "passed": 0}
+            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0, "mid": 0, "spread": 0, "passed": 0}
             today_date = datetime.date.today()
 
-            # ROBUSTER Spot-Price-Fallback
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
 
@@ -185,8 +176,7 @@ def run_pipeline():
             spot = (
                 float(tr_quote.get("last", 0) or tr_quote.get("bid", 0) or tr_quote.get("ask", 0) or 0) or
                 float(fh_quote.get("c", 0) or fh_quote.get("pc", 0) or fh_quote.get("previousClose", 0) or 0) or
-                float(fh_quote.get("o", 0) or 0) or
-                0.0
+                float(fh_quote.get("o", 0) or 0) or 0.0
             )
             print(f"  Final spot {ticker}: ${spot:.2f}")
 
@@ -195,7 +185,6 @@ def run_pipeline():
                 continue
 
             for option in chain:
-                # ... (der komplette Filter- und Kandidaten-Block bleibt unverändert wie in der letzten Version) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
@@ -256,10 +245,8 @@ def run_pipeline():
                 fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj, option.get("option_type", "call"))
                 edge = (mid - fv) / mid * 100 if mid > 0 else 0
 
-                ev, win_prob = mc_sim.simulate(
-                    spot, option["strike"], r, dte/252, iv_adj, mid,
-                    forecast.get("drift", 0), option.get("option_type", "call")
-                )
+                ev, win_prob = mc_sim.simulate(spot, option["strike"], r, dte/252, iv_adj, mid,
+                                               forecast.get("drift", 0), option.get("option_type", "call"))
 
                 candidate_for_bt = {
                     "symbol": contract_symbol,
@@ -282,8 +269,7 @@ def run_pipeline():
                 ev_normalized = max(min(ev_pct, 100), -100)
                 ev_component = (ev_normalized + 100) / 2
 
-                es = (0.30 * ev_component +
-                      0.25 * max(edge, 0) +
+                es = (0.30 * ev_component + 0.25 * max(edge, 0) +
                       0.25 * bt.get("win_rate", 0.5) * 100 +
                       0.20 * forecast.get("confidence", 0.5) * 100)
 
@@ -326,14 +312,12 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # Stage 5: Haiku Preselection
         print("\nStage 5: Haiku preselection...")
         haiku = HaikuPreselect(cfg)
         top20 = haiku.select(all_candidates)
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
 
-        # Stage 6: Mirofish
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
@@ -350,7 +334,6 @@ def run_pipeline():
             save_last_run(artifact)
             return False
 
-        # Stage 7: Claude Opus
         print("\nStage 7: Claude Opus final analysis...")
         analyst = ClaudeDeepAnalysis(cfg)
         context = {
@@ -363,7 +346,6 @@ def run_pipeline():
         artifact["final_recommendation"] = recommendation
         print(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
 
-        # Stage 8: HTML + Email
         print("\nStage 8: Generating HTML card and sending email...")
         gen = HTMLCardGenerator(cfg)
         html = gen.generate(recommendation, segment_scores, health, positions)
