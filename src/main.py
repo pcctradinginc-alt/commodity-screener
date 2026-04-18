@@ -145,7 +145,6 @@ def run_pipeline():
         print(f"  Qualifying segments: {qualifiers}")
         raw_data["segment_scores"] = segment_scores
 
-        # Stage 4: Quantitative Models + echtes Backtesting
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
         raw_data["historical_options"] = {}
