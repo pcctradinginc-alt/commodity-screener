@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-FinBERT + PyCOT v3 (OI-Ratio + Momentum + Strength Score)
+FinBERT + PyCOT v5 (persistente Historie + Z-Score + OI-Ratio + Strength Multiplier)
 """
 
 import json
@@ -98,13 +98,12 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (PyCOT v3 integriert) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (PyCOT v5) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
     positions = load_positions()
     thr = cfg["thresholds"]
-    last_run = load_last_run()
 
     artifact = {
         "run_id": run_id,
@@ -162,7 +161,7 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
-        print("\nStage 4: Quantitative models + real option history + PyCOT...")
+        print("\nStage 4: Quantitative models + real option history + PyCOT v5...")
         all_candidates = []
         raw_data["historical_options"] = {}
 
@@ -171,11 +170,14 @@ def run_pipeline():
             smile = cfg["watchlist"][seg].get("smile_factor", 0.15)
             print(f"  [{seg}] {ticker}")
 
-            # PyCOT Daten für diesen Ticker
+            # PyCOT v5 Daten
             cot_data = raw_data.get("cot", {}).get(ticker, {})
-            print(f"  [COT] {ticker} → OI-Ratio={cot_data.get('commercial_oi_ratio', 0)}% | "
-                  f"Strength={cot_data.get('signal_strength', 'Neutral')} | "
+            print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | "
+                  f"OI-Ratio={cot_data.get('commercial_oi_ratio', 0)}% | "
+                  f"Z-Score={cot_data.get('z_score', 0)} | "
                   f"Momentum={cot_data.get('momentum', 0)}")
+
+            strength = cot_data.get("strength_score", 1.0)
 
             prophet = ProphetForecaster(cfg, raw_data)
             forecast = prophet.forecast(seg)
@@ -266,9 +268,6 @@ def run_pipeline():
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
 
-                # PyCOT Strength Score als Multiplikator
-                strength_score = cot_data.get("strength_score", 1.0)
-
                 candidate_for_bt = {
                     "symbol": contract_symbol,
                     "segment": seg,
@@ -294,7 +293,8 @@ def run_pipeline():
                            0.3 * bt.get("win_rate", 0.5) * 100 +
                            0.3 * forecast.get("confidence", 0.5) * 100)
 
-                es = base_es * strength_score   # ← PyCOT Multiplikator
+                # PyCOT v5 Multiplikator
+                es = base_es * strength
 
                 all_candidates.append({
                     "symbol": contract_symbol,
@@ -322,6 +322,7 @@ def run_pipeline():
                     "prophet_confidence": round(forecast.get("confidence", 0), 3),
                     "cot_index": cot_data.get("cot_index", 50),
                     "commercial_oi_ratio": cot_data.get("commercial_oi_ratio", 0),
+                    "cot_z_score": cot_data.get("z_score", 0),
                     "cot_strength": cot_data.get("signal_strength", "Neutral"),
                     "mirofish_score": 0,
                     "mirofish_confidence": "none",
@@ -344,7 +345,6 @@ def run_pipeline():
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
 
-        # Stage 6–8 bleiben unverändert
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
