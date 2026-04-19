@@ -11,9 +11,9 @@ import pandas as pd
 from data_fetch import DataFetcher
 from news_screener import NewsScreener
 from analysis.haiku_preselect import HaikuPreselect
-from models.mirofish_check import MirofishChecker          # ← korrekt
+from analysis.mirofish_check import MirofishChecker          # ← KORRIGIERT: analysis/
 from analysis.claude_deep_analysis import ClaudeDeepAnalysis
-from models.backtest_pandas import BacktestPandas          # ← korrekt (BacktestPandas)
+from models.backtest_pandas import BacktestPandas
 from html_card_generator import HTMLCardGenerator
 from email_sender import EmailSender
 
@@ -90,7 +90,7 @@ def run_pipeline():
 
         # Stage 4
         print("Stage 4: Quantitative models + real option history + PyCOT v5.6...")
-        backtester = BacktestPandas()                     # ← korrekt: BacktestPandas
+        backtester = BacktestPandas()
         all_candidates = []
 
         for seg in qualifying_segments:
