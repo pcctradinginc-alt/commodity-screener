@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + Mirofish
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + YAML-Fix
 """
 
 import datetime
@@ -7,11 +7,12 @@ import json
 import os
 import time
 import pandas as pd
+import yaml                                      # ← NEU: für config.yaml
 
 from data_fetch import DataFetcher
 from news_screener import NewsScreener
 from analysis.haiku_preselect import HaikuPreselect
-from analysis.mirofish_check import MirofishChecker          # ← KORRIGIERT: analysis/
+from analysis.mirofish_check import MirofishChecker
 from analysis.claude_deep_analysis import ClaudeDeepAnalysis
 from models.backtest_pandas import BacktestPandas
 from html_card_generator import HTMLCardGenerator
@@ -63,7 +64,14 @@ def run_pipeline():
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
-        cfg = json.load(open("config.yaml")) if os.path.exists("config.yaml") else {}
+        # ==================== CONFIG LADEN (KORRIGIERT) ====================
+        if os.path.exists("config.yaml"):
+            with open("config.yaml", "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            print("  ✅ config.yaml erfolgreich geladen (YAML)")
+        else:
+            cfg = {}
+            print("  ⚠️ config.yaml nicht gefunden → leere Config")
 
         # Stage 1
         print("Stage 1: Fetching data...")
@@ -126,7 +134,7 @@ def run_pipeline():
                     bt = backtester.find_similar_real(candidate)
                     candidate["win_rate"] = bt.get("win_rate", 0.48)
                     all_candidates.append(candidate)
-                except:
+                except Exception as e:
                     continue
 
         print(f"  Total candidates after filter: {len(all_candidates)}")
