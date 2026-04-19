@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.4 – exakt auf die Spaltennamen aus deinem Log angepasst
+PyCOT Analyzer v5.4 – exakt auf die Spaltennamen aus deinem aktuellen Log angepasst
 """
 
 import cot_reports as cot
@@ -9,7 +9,7 @@ import datetime
 class PyCOTAnalyzer:
     def __init__(self):
         self.current_year = datetime.datetime.now().year
-        print("  ✅ PyCOT Analyzer v5.4 geladen (exakte Spalten-Mapping)")
+        print("  ✅ PyCOT Analyzer v5.4 geladen (exakte Spalten aus Log)")
 
     def get_cot_data(self, ticker: str):
         try:
@@ -40,7 +40,7 @@ class PyCOTAnalyzer:
             if market_data.empty:
                 return self._default_response()
 
-            # Numerische Konvertierung
+            # Exakte Spaltennamen aus deinem Log
             long_col = 'Commercial Positions-Long (All)'
             short_col = 'Commercial Positions-Short (All)'
             oi_col = 'Open Interest (All)'
