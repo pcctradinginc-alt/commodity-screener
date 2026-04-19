@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (expiry)
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (option_type)
 """
 
 import datetime
@@ -128,9 +128,10 @@ def run_pipeline():
                         "ticker": ticker,
                         "strike": strike,
                         "dte": dte,
-                        "expiry": expiry_date,          # ← FIX: Claude braucht 'expiry'
+                        "expiry": expiry_date,
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
+                        "option_type": opt.get("option_type", "call"),   # ← FIX: Claude braucht 'option_type'
                         "edge_score": 45.0 * strength,
                         "historical_data": fetcher.fetch_historical_option(opt.get("symbol", "")),
                     }
