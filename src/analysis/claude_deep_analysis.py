@@ -1,9 +1,9 @@
 """
-Claude Opus Final Analysis – Verbesserte Version
-- Strenger Filter auf realistische Optionen (Delta 0.25-0.45)
-- Explizite Ablehnung bei unrealistischen Moves (>12% in 30 Tagen)
+Claude Opus Final Analysis – Verbesserte Version mit robustem Parser
+- Verwendet claude-3-5-sonnet-20241022 (stabil & günstig)
+- Strenger Filter auf realistische Optionen
+- Robuster Parser für "KEIN TRADE EMPFOHLEN"
 - Automatische Conviction-Reduktion bei kleiner Historie
-- Klarere No-Trade-Logik
 """
 
 import os
@@ -25,17 +25,14 @@ class ClaudeDeepAnalysis:
         seg = top.get("segment", "unknown")
         spot = top.get("spot", "N/A")
 
-        # Wichtige Kontext-Daten
         seg_data = context.get(seg, {})
         news_hl = " | ".join(seg_data.get("top_headlines", [])[:4]) or "Keine aktuellen Schlagzeilen"
         cot = context.get("raw_data", {}).get("cot", {}).get(top.get("ticker"), {})
         eia = context.get("raw_data", {}).get("eia", {}).get(top.get("ticker"), {})
 
-        # Historische Warnung
         n = top.get("hist_sample_size", 0)
         hist_warning = f"\n⚠️ Historische Win-Rate basiert auf nur {n} Datenpunkten. Conviction wird automatisch reduziert!" if n < 20 else ""
 
-        # Kandidaten als JSON für Claude
         candidates_str = json.dumps([{
             "symbol": c["symbol"],
             "strike": c["strike"],
@@ -58,20 +55,19 @@ AKTUELLER SPOT-PREIS: {spot} USD ← SEHR WICHTIG!
 {hist_warning}
 
 REGELN (strikt einhalten):
-- Empfehle NUR Optionen mit Delta zwischen 0.25 und 0.45 (realistische Wahrscheinlichkeit).
-- Keine Deep-OTM-Optionen (kein Strike mehr als 12% vom Spot bei DTE < 60 Tagen).
+- Nur Optionen mit Delta 0.25–0.45 empfehlen.
+- Keine Deep-OTM-Optionen (Strike >12% vom Spot bei DTE < 60 Tagen).
 - Bei unrealistischem Move (>12% in 30 Tagen) → sofort "KEIN TRADE EMPFOHLEN".
-- Conviction max. 10/10. Bei n < 20 automatisch -2 Punkte.
 
 SEGMENT: {seg.upper()}
-NEWS (letzte Tage): {news_hl}
-COT: Net Commercial = {cot.get('net_commercial', 'N/A')}
+NEWS: {news_hl}
+COT Net-Commercial: {cot.get('net_commercial', 'N/A')}
 EIA: {eia.get('delta', 'N/A')}
 
 KANDIDATEN:
 {candidates_str}
 
-**ANTWORTE STRENG EXAKT IM FOLGENDEN FORMAT. KEINE ABWEICHUNGEN, KEIN ZUSÄTZLICHER TEXT.**
+**ANTWORTE STRENG EXAKT IM FOLGENDEN FORMAT. KEINE ABWEICHUNGEN.**
 
 EMPFEHLUNG: [Symbol] [Strike] [Expiry] [Call/Put]
 EINSTIEG (MID): $[Mid-Preis]
@@ -80,7 +76,7 @@ CONVICTION: [1-10] — [kurze Begründung]
 MAX. VERLUST: $[Praemie x 100]
 MC EXP. VALUE: $[MC EV]
 WIN-RATE HIST.: [X%] (n=[Stichprobe])
-THESE: [1 Satz, was passieren muss]
+THESE: [1 Satz]
 INVALIDIERUNG: [1 Satz]
 NEWS-KONTEXT: [1 Satz]
 
@@ -91,7 +87,7 @@ Mindest-Conviction fuer Trades: 6/10
 
         try:
             response = self.client.messages.create(
-                model="claude-3-opus-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=1200,
                 temperature=0.0,
                 messages=[{"role": "user", "content": prompt}],
@@ -123,8 +119,11 @@ Mindest-Conviction fuer Trades: 6/10
         }
 
     def _parse_recommendation(self, text, top_candidate):
-        # ... (die bestehende Parsing-Logik bleibt gleich – nur etwas robuster gemacht)
-        lines = {line.split(":", 1)[0].strip().upper(): line.split(":", 1)[1].strip()
+        # Robuster Parser mit "KEIN TRADE" Erkennung
+        if "KEIN TRADE" in text.upper() or "NO TRADE" in text.upper():
+            return self._no_trade_fallback()
+
+        lines = {line.split(":", 1)[0].strip().upper(): ":".join(line.split(":", 1)[1:]).strip()
                  for line in text.split("\n") if ":" in line}
 
         def extract(key, default=""):
@@ -133,7 +132,9 @@ Mindest-Conviction fuer Trades: 6/10
                     return v.strip()
             return default
 
-        emp = extract("EMPFEHLUNG", "").split()
+        raw_emp = extract("EMPFEHLUNG", "")
+        emp = raw_emp.split()
+
         symbol = emp[0] if emp else top_candidate.get("symbol", "NO TRADE")
         strike = float(emp[1]) if len(emp) > 1 else top_candidate.get("strike", 0)
         expiry = emp[2] if len(emp) > 2 else top_candidate.get("expiry", "")
@@ -144,7 +145,6 @@ Mindest-Conviction fuer Trades: 6/10
         except:
             conviction = 5
 
-        # Automatische Reduktion bei kleiner Historie
         if top_candidate.get("hist_sample_size", 0) < 20:
             conviction = max(1, conviction - 2)
 
