@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.4 – exakt auf die Spaltennamen aus deinem aktuellen Log angepasst
+PyCOT Analyzer v5.4 – exakt auf deine Log-Spalten angepasst
 """
 
 import cot_reports as cot
@@ -40,7 +40,7 @@ class PyCOTAnalyzer:
             if market_data.empty:
                 return self._default_response()
 
-            # Exakte Spaltennamen aus deinem Log
+            # Exakte Spalten aus deinem Log
             long_col = 'Commercial Positions-Long (All)'
             short_col = 'Commercial Positions-Short (All)'
             oi_col = 'Open Interest (All)'
