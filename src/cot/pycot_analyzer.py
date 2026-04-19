@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.5 – exakte Spalten + korrigiertes Momentum (Bindestriche)
+PyCOT Analyzer v5.6 – alle Change-Spalten numeric + Momentum-Fix
 """
 
 import cot_reports as cot
@@ -9,7 +9,7 @@ import datetime
 class PyCOTAnalyzer:
     def __init__(self):
         self.current_year = datetime.datetime.now().year
-        print("  ✅ PyCOT Analyzer v5.5 geladen (exakte Spalten + Momentum-Fix)")
+        print("  ✅ PyCOT Analyzer v5.6 geladen (alle Spalten numeric)")
 
     def get_cot_data(self, ticker: str):
         try:
@@ -39,31 +39,37 @@ class PyCOTAnalyzer:
             if market_data.empty:
                 return self._default_response()
 
-            long_col = 'Commercial Positions-Long (All)'
-            short_col = 'Commercial Positions-Short (All)'
-            oi_col = 'Open Interest (All)'
+            # ← HIER ALLE SPALTEN, DIE WIR BRAUCHEN, AUF NUMERIC ZWINGEN
+            target_cols = [
+                'Commercial Positions-Long (All)',
+                'Commercial Positions-Short (All)',
+                'Open Interest (All)',
+                'Change in Commercial-Long (All)',
+                'Change in Commercial-Short (All)'
+            ]
 
-            for col in [long_col, short_col, oi_col]:
+            for col in target_cols:
                 if col in market_data.columns:
                     market_data[col] = pd.to_numeric(market_data[col], errors='coerce').fillna(0)
 
             latest = market_data.sort_values(date_col, ascending=False).iloc[0]
 
-            long_com = latest.get(long_col, 0)
-            short_com = latest.get(short_col, 0)
+            long_com = latest.get('Commercial Positions-Long (All)', 0)
+            short_com = latest.get('Commercial Positions-Short (All)', 0)
             net_com = long_com - short_com
-            total_oi = latest.get(oi_col, 1) or 1
+            total_oi = latest.get('Open Interest (All)', 1) or 1
 
-            # Korrigiertes Momentum mit Bindestrichen (wie im Log)
+            # Momentum mit korrekten Bindestrichen
             momentum = (latest.get('Change in Commercial-Long (All)', 0) - latest.get('Change in Commercial-Short (All)', 0)) / 1000.0
 
             commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
 
-            hist_net = market_data[long_col] - market_data[short_col]
+            hist_net = market_data['Commercial Positions-Long (All)'] - market_data['Commercial Positions-Short (All)']
             z_score = 0.0
             if len(hist_net) > 5 and hist_net.std() > 0:
                 z_score = (net_com - hist_net.mean()) / hist_net.std()
 
+            # Signal-Logik
             if commercial_oi_ratio > 28 and z_score > 1.5 and momentum > 40:
                 signal, strength_score = "Strong Buy", 2.0
             elif commercial_oi_ratio > 22 and z_score > 1.0:
@@ -86,7 +92,7 @@ class PyCOTAnalyzer:
             }
 
         except Exception as e:
-            print(f"  ❌ PyCOT v5.5 Error für {ticker}: {e}")
+            print(f"  ❌ PyCOT v5.6 Error für {ticker}: {e}")
             return self._default_response()
 
     def _default_response(self):
