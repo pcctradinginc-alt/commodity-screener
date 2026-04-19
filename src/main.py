@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-FinBERT + verbesserter Haiku-Fallback (Retry + Regime-Bias)
+FinBERT + PyCOT v3 (OI-Ratio + Momentum + Strength Score)
 """
 
 import json
@@ -98,7 +98,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (Haiku-Fallback verbessert) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (PyCOT v3 integriert) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -162,7 +162,7 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
-        print("\nStage 4: Quantitative models + real option history...")
+        print("\nStage 4: Quantitative models + real option history + PyCOT...")
         all_candidates = []
         raw_data["historical_options"] = {}
 
@@ -170,6 +170,12 @@ def run_pipeline():
             ticker = cfg["watchlist"][seg]["tickers"][0]
             smile = cfg["watchlist"][seg].get("smile_factor", 0.15)
             print(f"  [{seg}] {ticker}")
+
+            # PyCOT Daten für diesen Ticker
+            cot_data = raw_data.get("cot", {}).get(ticker, {})
+            print(f"  [COT] {ticker} → OI-Ratio={cot_data.get('commercial_oi_ratio', 0)}% | "
+                  f"Strength={cot_data.get('signal_strength', 'Neutral')} | "
+                  f"Momentum={cot_data.get('momentum', 0)}")
 
             prophet = ProphetForecaster(cfg, raw_data)
             forecast = prophet.forecast(seg)
@@ -254,12 +260,14 @@ def run_pipeline():
                 r = raw_data.get("fred", {}).get("fed_funds_rate", 0.05)
                 iv_adj = bs_calc.smile_adjusted_iv(iv, spot, option["strike"], smile)
                 fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj, option.get("option_type", "call"))
-                edge = (mid - fv) / mid * 100 if mid > 0 else 0
 
                 ev, win_prob = mc_sim.simulate(
                     spot, option["strike"], r, dte/252, iv_adj, mid,
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
+
+                # PyCOT Strength Score als Multiplikator
+                strength_score = cot_data.get("strength_score", 1.0)
 
                 candidate_for_bt = {
                     "symbol": contract_symbol,
@@ -286,7 +294,7 @@ def run_pipeline():
                            0.3 * bt.get("win_rate", 0.5) * 100 +
                            0.3 * forecast.get("confidence", 0.5) * 100)
 
-                es = base_es
+                es = base_es * strength_score   # ← PyCOT Multiplikator
 
                 all_candidates.append({
                     "symbol": contract_symbol,
@@ -312,6 +320,9 @@ def run_pipeline():
                     "hist_sample_size": bt.get("sample_size", 0),
                     "prophet_drift": round(forecast.get("drift", 0), 4),
                     "prophet_confidence": round(forecast.get("confidence", 0), 3),
+                    "cot_index": cot_data.get("cot_index", 50),
+                    "commercial_oi_ratio": cot_data.get("commercial_oi_ratio", 0),
+                    "cot_strength": cot_data.get("signal_strength", "Neutral"),
                     "mirofish_score": 0,
                     "mirofish_confidence": "none",
                     "real_options_data": bt.get("real_options_data", False),
@@ -333,6 +344,7 @@ def run_pipeline():
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
 
+        # Stage 6–8 bleiben unverändert
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
