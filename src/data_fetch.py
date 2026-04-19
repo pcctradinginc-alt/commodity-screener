@@ -1,5 +1,5 @@
 """
-Data Fetcher – Diagnose-Modus für Spot-Preise (Tradier + Finnhub)
+Data Fetcher – Diagnose-Modus + Tradier-Header
 """
 
 import datetime
@@ -20,7 +20,7 @@ class DataFetcher:
     def fetch_all(self):
         raw_data = {}
 
-        raw_data["quotes"] = self.fetch_quotes()           # Finnhub
+        raw_data["quotes"] = self.fetch_quotes()
         raw_data["tradier_quotes"] = self.fetch_tradier_quotes()
         raw_data["candles"] = self.fetch_candles()
         raw_data["options_chains"] = self.fetch_options_chains()
@@ -35,11 +35,7 @@ class DataFetcher:
 
         return raw_data
 
-    # ─────────────────────────────────────────────────────────────
-    # Diagnose-Modus für Finnhub
-    # ─────────────────────────────────────────────────────────────
     def fetch_quotes(self):
-        """Finnhub – mit vollem Debug"""
         api_key = os.getenv("FINNHUB_KEY")
         key_len = len(api_key) if api_key else 0
         print(f"  [DEBUG] FINNHUB_KEY geladen? Länge = {key_len}")
@@ -56,7 +52,7 @@ class DataFetcher:
                 r = self.session.get(url, timeout=10)
                 print(f"  [Finnhub] {ticker} → Status {r.status_code}")
                 if r.status_code != 200:
-                    print(f"    Fehler-Text: {r.text[:200]}")
+                    print(f"    Fehler: {r.text[:200]}")
                     continue
                 data = r.json()
                 if data and data.get('c'):
@@ -65,11 +61,7 @@ class DataFetcher:
                 print(f"  [Finnhub] Exception für {ticker}: {e}")
         return results
 
-    # ─────────────────────────────────────────────────────────────
-    # Diagnose-Modus für Tradier
-    # ─────────────────────────────────────────────────────────────
     def fetch_tradier_quotes(self):
-        """Tradier – mit vollem Debug"""
         api_key = os.getenv("TRADIER_KEY")
         key_len = len(api_key) if api_key else 0
         print(f"  [DEBUG] TRADIER_KEY geladen? Länge = {key_len}")
@@ -82,12 +74,15 @@ class DataFetcher:
         for seg in self.cfg["watchlist"]:
             ticker = self.cfg["watchlist"][seg]["tickers"][0]
             url = f"https://api.tradier.com/v1/markets/quotes?symbols={ticker}"
-            headers = {"Authorization": f"Bearer {api_key}"}
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'Accept': 'application/json'
+            }
             try:
                 r = self.session.get(url, headers=headers, timeout=10)
                 print(f"  [Tradier] {ticker} → Status {r.status_code}")
                 if r.status_code != 200:
-                    print(f"    Fehler-Text: {r.text[:200]}")
+                    print(f"    Fehler: {r.text[:200]}")
                     continue
                 data = r.json()
                 if data and 'quotes' in data and 'quote' in data['quotes']:
@@ -96,9 +91,6 @@ class DataFetcher:
                 print(f"  [Tradier] Exception für {ticker}: {e}")
         return results
 
-    # ─────────────────────────────────────────────────────────────
-    # Rest (unverändert)
-    # ─────────────────────────────────────────────────────────────
     def _validate_spot_prices(self, raw_data):
         spots = {}
         for seg in self.cfg.get("watchlist", {}):
@@ -135,7 +127,6 @@ class DataFetcher:
             print(f"  [COT] {ticker} → {data.get('signal_strength')} | OI-Ratio={data.get('commercial_oi_ratio')}%")
         return cot_data
 
-    # Placeholder für die anderen Methoden (bitte deine bestehende Logik hier einsetzen)
     def fetch_options_chains(self): return {}
     def fetch_candles(self): return {}
     def fetch_eia(self): return {}
