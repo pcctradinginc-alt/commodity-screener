@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-FinBERT Sentiment integriert – News-Screening deutlich verbessert
+FinBERT Sentiment integriert + Macro V7.1
 """
 
 import json
