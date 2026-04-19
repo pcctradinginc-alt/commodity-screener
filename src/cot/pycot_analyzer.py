@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.3 – robust für cot-reports (flexibles Spalten-Handling + Debug)
+PyCOT Analyzer v5.3 – robuste Spalten-Handhabung für cot-reports
 """
 
 import cot_reports as cot
@@ -31,23 +31,26 @@ class PyCOTAnalyzer:
             df = cot.cot_year(self.current_year, cot_report_type="legacy_fut")
             print(f"  [COT] Downloaded {len(df)} rows for {ticker}")
 
-            # Flexibler Spalten-Check
-            if 'Market_and_Exchange_Names' in df.columns:
-                col = 'Market_and_Exchange_Names'
-            else:
-                col = df.columns[0]   # Fallback auf erste Spalte
+            # Flexibler Spaltenname für das Datum
+            date_col = None
+            for possible in ['As_of_Date_In_Form_YYMMDD', 'Report_Date_as_MM_DD_YYYY', 'Date']:
+                if possible in df.columns:
+                    date_col = possible
+                    break
+            if not date_col:
+                date_col = df.columns[0]   # Fallback
 
-            market_data = df[df[col].str.contains(market_name, case=False, na=False)].copy()
+            market_data = df[df['Market_and_Exchange_Names'].str.contains(market_name, case=False, na=False)].copy()
 
             if market_data.empty:
                 return self._default_response()
 
             # Numerische Konvertierung
-            for col_name in ['Comm_Positions_Long_All', 'Comm_Positions_Short_All', 'Open_Interest_All']:
-                if col_name in market_data.columns:
-                    market_data[col_name] = pd.to_numeric(market_data[col_name], errors='coerce').fillna(0)
+            for col in ['Comm_Positions_Long_All', 'Comm_Positions_Short_All', 'Open_Interest_All']:
+                if col in market_data.columns:
+                    market_data[col] = pd.to_numeric(market_data[col], errors='coerce').fillna(0)
 
-            latest = market_data.sort_values('As_of_Date_In_Form_YYMMDD', ascending=False).iloc[0]
+            latest = market_data.sort_values(date_col, ascending=False).iloc[0]
 
             long_com = latest.get('Comm_Positions_Long_All', 0)
             short_com = latest.get('Comm_Positions_Short_All', 0)
