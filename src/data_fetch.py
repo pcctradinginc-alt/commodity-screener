@@ -124,33 +124,63 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT ──────────────────────────────────────────────────────────
+    # ── COT – ROBUSTE VERSION mit Fallback + besserem Parsing ─────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
-            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
+
+        url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
         try:
             import io
             import csv
-            url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
             resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
+
             reader = csv.DictReader(io.StringIO(resp.text))
             rows = [r for r in reader if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
+
             if not rows:
-                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+                print(f"  [COT] ⚠️  Keine Daten für Code {cot_code} gefunden")
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_data"}
+
+            # Sortiere nach Datum (neueste zuerst)
             rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
+
+            # Nimm neuesten Report
             r = rows[0]
             comm_long = int(r.get("Comm_Positions_Long_All", 0) or 0)
             comm_short = int(r.get("Comm_Positions_Short_All", 0) or 0)
+            as_of = r.get("Report_Date_as_YYYY-MM-DD", "")
+
+            net = comm_long - comm_short
+
+            print(f"  [COT] ✅ {cot_code} | Net-Commercial: {net:,} | as-of: {as_of}")
+
+            # Fallback: Wenn aktueller Report 0 ist → nimm vorherige Woche
+            if net == 0 and len(rows) > 1:
+                r2 = rows[1]
+                comm_long2 = int(r2.get("Comm_Positions_Long_All", 0) or 0)
+                comm_short2 = int(r2.get("Comm_Positions_Short_All", 0) or 0)
+                net2 = comm_long2 - comm_short2
+                as_of2 = r2.get("Report_Date_as_YYYY-MM-DD", "")
+                print(f"  [COT] ⚠️  Net=0 → Fallback auf Vorwoche: {net2:,} | {as_of2}")
+                return {
+                    "net_commercial": net2,
+                    "long": comm_long2,
+                    "short": comm_short2,
+                    "as_of": as_of2 + " (fallback)",
+                }
+
             return {
-                "net_commercial": comm_long - comm_short,
+                "net_commercial": net,
                 "long": comm_long,
                 "short": comm_short,
-                "as_of": r.get("Report_Date_as_YYYY-MM-DD", ""),
+                "as_of": as_of,
             }
+
         except Exception as e:
-            print(f"  COT fetch error {cot_code}: {e}")
-            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
+            print(f"  [COT] ❌ Fetch error {cot_code}: {e}")
+            return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
     # ── FRED – erweitert für Liquidity Score (Phase 1) ───────────────
     def fetch_fred(self):
@@ -159,9 +189,9 @@ class DataFetcher:
             "fed_funds_rate": "FEDFUNDS",
             "real_yield_10y": "DFII10",
             "dxy": "DTWEXBGS",
-            "cpi": "CPIAUCSL",           # Inflation (CPI)
-            "m2": "M2SL",                # Money Supply M2
-            "walcl": "WALCL",            # Fed Balance Sheet
+            "cpi": "CPIAUCSL",
+            "m2": "M2SL",
+            "walcl": "WALCL",
         }
         for name, sid in series.items():
             url = "https://api.stlouisfed.org/fred/series/observations"
