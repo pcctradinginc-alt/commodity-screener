@@ -149,7 +149,10 @@ def run_pipeline():
         segment_scores = screener.score_all_segments()
         artifact["segments"] = segment_scores
 
-        qualifiers = [seg for seg, data in segment_scores.items() if data["total_score"] >= thr["segment_score_min"]]
+        qualifiers = [
+            seg for seg, data in segment_scores.items()
+            if data["total_score"] >= thr["segment_score_min"]
+        ]
         qualifiers = sorted(qualifiers, key=lambda s: segment_scores[s]["total_score"], reverse=True)[:thr["max_qualifiers"]]
 
         if not qualifiers:
@@ -163,11 +166,158 @@ def run_pipeline():
         all_candidates = []
         raw_data["historical_options"] = {}
 
-        # ... (der gesamte Stage-4-Block aus deiner letzten laufenden Version – unverändert)
-        # Ich habe ihn hier aus Platzgründen gekürzt, aber du kannst ihn 1:1 aus deiner vorherigen main.py übernehmen.
-        # Wichtig: am Ende des Loops muss all_candidates gefüllt sein.
+        for seg in qualifiers:
+            ticker = cfg["watchlist"][seg]["tickers"][0]
+            smile = cfg["watchlist"][seg].get("smile_factor", 0.15)
+            print(f"  [{seg}] {ticker}")
 
-        # (Falls du den vollständigen Stage 4 brauchst, sag einfach "Stage 4 bitte" – ich schicke ihn separat.)
+            prophet = ProphetForecaster(cfg, raw_data)
+            forecast = prophet.forecast(seg)
+
+            bs_calc = BlackScholesCalculator(cfg)
+            mc_sim = MonteCarloSimulator(cfg)
+            backtester = BacktestEngine(cfg, raw_data)
+
+            chain = raw_data.get("options_chains", {}).get(ticker, [])
+            filter_stats = {"oi": 0, "volume": 0, "dte": 0, "delta": 0, "mid": 0, "spread": 0, "passed": 0}
+            today_date = datetime.date.today()
+
+            fh_quote = raw_data.get("quotes", {}).get(ticker, {})
+            tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
+
+            spot = (
+                float(tr_quote.get("last", 0) or tr_quote.get("bid", 0) or tr_quote.get("ask", 0) or 0) or
+                float(fh_quote.get("c", 0) or fh_quote.get("pc", 0) or 0) or 0.0
+            )
+            print(f"  Final spot {ticker}: ${spot:.2f}")
+
+            if spot <= 0:
+                print(f"  WARNING: No valid spot price for {ticker} — skipping segment")
+                continue
+
+            for option in chain:
+                oi = option.get("open_interest", 0) or 0
+                volume = option.get("volume", 0) or 0
+                bid = option.get("bid", 0) or 0
+                ask = option.get("ask", 0) or 0
+
+                dte = option.get("dte", None)
+                if dte is None:
+                    exp_str = option.get("expiration_date", "")
+                    if exp_str:
+                        try:
+                            exp_date = datetime.date.fromisoformat(exp_str)
+                            dte = (exp_date - today_date).days
+                        except ValueError:
+                            dte = 0
+                    else:
+                        dte = 0
+                dte = int(dte or 0)
+
+                if bid > 0 and ask > 0:
+                    mid = (bid + ask) / 2
+                elif ask > 0:
+                    mid = ask
+                else:
+                    mid = 0
+
+                greeks = option.get("greeks") or {}
+                delta_raw = greeks.get("delta", None)
+                delta = abs(float(delta_raw or 0)) if delta_raw is not None else 0.30
+
+                iv = float(greeks.get("mid_iv", 0) or 0) or 0.30
+
+                if oi < thr["options_oi_min"]: filter_stats["oi"] += 1; continue
+                if not (thr["options_dte_min"] <= dte <= thr["options_dte_max"]): filter_stats["dte"] += 1; continue
+                if not (thr["options_delta_min"] <= delta <= thr["options_delta_max"]): filter_stats["delta"] += 1; continue
+                if mid == 0: filter_stats["mid"] += 1; continue
+
+                if spot > 0:
+                    intrinsic = max(spot - option.get("strike", 0), 0) if option.get("option_type") == "call" else max(option.get("strike", 0) - spot, 0)
+                    if intrinsic > 0 and mid < intrinsic * 0.5: filter_stats["mid"] += 1; continue
+
+                if bid > 0 and ask > 0:
+                    spread_pct = (ask - bid) / mid
+                    if spread_pct > thr["options_bid_ask_max_pct"]: filter_stats["spread"] += 1; continue
+
+                filter_stats["passed"] += 1
+
+                open_syms = [p["symbol"] for p in positions["open_positions"]]
+                if option.get("symbol") in open_syms:
+                    continue
+
+                contract_symbol = option.get("symbol", "")
+                if contract_symbol:
+                    hist_data = fetcher.fetch_historical_option(contract_symbol, period="120d")
+                    raw_data["historical_options"][contract_symbol] = hist_data
+
+                r = raw_data.get("fred", {}).get("fed_funds_rate", 0.05)
+                iv_adj = bs_calc.smile_adjusted_iv(iv, spot, option["strike"], smile)
+                fv = bs_calc.fair_value(spot, option["strike"], r, dte/252, iv_adj, option.get("option_type", "call"))
+                edge = (mid - fv) / mid * 100 if mid > 0 else 0
+
+                ev, win_prob = mc_sim.simulate(
+                    spot, option["strike"], r, dte/252, iv_adj, mid,
+                    forecast.get("drift", 0), option.get("option_type", "call")
+                )
+
+                candidate_for_bt = {
+                    "symbol": contract_symbol,
+                    "segment": seg,
+                    "ticker": ticker,
+                    "spot_price": spot,
+                    "strike": option.get("strike"),
+                    "expiry": option.get("expiration_date", ""),
+                    "option_type": option.get("option_type", "call"),
+                    "dte": dte,
+                    "delta": delta,
+                    "mid_price": mid,
+                    "iv_pct": iv * 100,
+                    "iv_rank": segment_scores[seg].get("iv_rank", 0),
+                    "oi": oi,
+                }
+                bt = backtester.find_similar_real(candidate_for_bt)
+
+                ev_pct = ev / max(mid, 0.01) * 100
+                ev_normalized = max(min(ev_pct, 100), -100)
+                ev_component = (ev_normalized + 100) / 2
+
+                base_es = (0.4 * ev_component +
+                           0.3 * bt.get("win_rate", 0.5) * 100 +
+                           0.3 * forecast.get("confidence", 0.5) * 100)
+
+                es = base_es
+
+                all_candidates.append({
+                    "symbol": contract_symbol,
+                    "segment": seg,
+                    "ticker": ticker,
+                    "spot_price": round(spot, 2),
+                    "strike": option.get("strike"),
+                    "expiry": option.get("expiration_date", ""),
+                    "option_type": option.get("option_type", "call"),
+                    "dte": dte,
+                    "delta": round(delta, 3),
+                    "mid_price": round(mid, 2),
+                    "iv_pct": round(iv * 100, 1),
+                    "iv_rank": segment_scores[seg].get("iv_rank", 0),
+                    "oi": oi,
+                    "volume": volume,
+                    "fair_value_bs": round(fv, 2),
+                    "edge_score": round(es, 1),
+                    "mc_ev": round(ev, 2),
+                    "mc_win_prob": round(win_prob, 3),
+                    "hist_win_rate": round(bt.get("win_rate", 0), 3),
+                    "hist_sharpe": round(bt.get("sharpe", 0), 2),
+                    "hist_sample_size": bt.get("sample_size", 0),
+                    "prophet_drift": round(forecast.get("drift", 0), 4),
+                    "prophet_confidence": round(forecast.get("confidence", 0), 3),
+                    "mirofish_score": 0,
+                    "mirofish_confidence": "none",
+                    "real_options_data": bt.get("real_options_data", False),
+                })
+
+            print(f"  Filter stats {ticker}: {filter_stats}")
 
         artifact["candidates_pre_haiku"] = len(all_candidates)
         print(f"  Total candidates after filter: {len(all_candidates)}")
@@ -183,7 +333,6 @@ def run_pipeline():
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
 
-        # Stage 6–8 bleiben wie bisher
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
@@ -202,7 +351,12 @@ def run_pipeline():
 
         print("\nStage 7: Claude Opus final analysis...")
         analyst = ClaudeDeepAnalysis(cfg)
-        context = {"raw_data": raw_data, "segment_scores": segment_scores, "positions": positions, "health": health}
+        context = {
+            "raw_data": raw_data,
+            "segment_scores": segment_scores,
+            "positions": positions,
+            "health": health,
+        }
         recommendation = analyst.analyze(finalists[:8], context)
         artifact["final_recommendation"] = recommendation
         print(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
