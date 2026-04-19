@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.4 – exakt auf deine Log-Spalten angepasst
+PyCOT Analyzer v5.5 – exakte Spalten + korrigiertes Momentum (Bindestriche)
 """
 
 import cot_reports as cot
@@ -9,7 +9,7 @@ import datetime
 class PyCOTAnalyzer:
     def __init__(self):
         self.current_year = datetime.datetime.now().year
-        print("  ✅ PyCOT Analyzer v5.4 geladen (exakte Spalten aus Log)")
+        print("  ✅ PyCOT Analyzer v5.5 geladen (exakte Spalten + Momentum-Fix)")
 
     def get_cot_data(self, ticker: str):
         try:
@@ -31,7 +31,6 @@ class PyCOTAnalyzer:
             df = cot.cot_year(self.current_year, cot_report_type="legacy_fut")
             print(f"  [COT] Downloaded {len(df)} rows for {ticker}")
 
-            # Exakte Spalten aus deinem Log
             market_col = 'Market and Exchange Names'
             date_col = 'As of Date in Form YYMMDD'
 
@@ -40,7 +39,6 @@ class PyCOTAnalyzer:
             if market_data.empty:
                 return self._default_response()
 
-            # Exakte Spalten aus deinem Log
             long_col = 'Commercial Positions-Long (All)'
             short_col = 'Commercial Positions-Short (All)'
             oi_col = 'Open Interest (All)'
@@ -56,17 +54,16 @@ class PyCOTAnalyzer:
             net_com = long_com - short_com
             total_oi = latest.get(oi_col, 1) or 1
 
-            momentum = (latest.get('Change in Commercial Long (All)', 0) - latest.get('Change in Commercial Short (All)', 0)) / 1000.0
+            # Korrigiertes Momentum mit Bindestrichen (wie im Log)
+            momentum = (latest.get('Change in Commercial-Long (All)', 0) - latest.get('Change in Commercial-Short (All)', 0)) / 1000.0
 
             commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
 
-            # Z-Score
             hist_net = market_data[long_col] - market_data[short_col]
             z_score = 0.0
             if len(hist_net) > 5 and hist_net.std() > 0:
                 z_score = (net_com - hist_net.mean()) / hist_net.std()
 
-            # Signal Strength
             if commercial_oi_ratio > 28 and z_score > 1.5 and momentum > 40:
                 signal, strength_score = "Strong Buy", 2.0
             elif commercial_oi_ratio > 22 and z_score > 1.0:
@@ -89,7 +86,7 @@ class PyCOTAnalyzer:
             }
 
         except Exception as e:
-            print(f"  ❌ PyCOT v5.4 Error für {ticker}: {e}")
+            print(f"  ❌ PyCOT v5.5 Error für {ticker}: {e}")
             return self._default_response()
 
     def _default_response(self):
