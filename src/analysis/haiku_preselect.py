@@ -1,11 +1,11 @@
 """
 Claude Haiku Preselection — reduziert Kandidaten auf Top-20
-JETZT MIT SPOT-PREIS-KONTEXT (Schritt 4)
+JETZT MIT STARKEM SPOT-PREIS- + MAKRO-KONTEXT (Phase 1)
 """
 
 import os
 import json
-import datetime                    # ← WICHTIG: fehlte vorher
+import datetime
 import anthropic
 
 
@@ -18,7 +18,6 @@ class HaikuPreselect:
         if not candidates:
             return []
 
-        # Erweiterte Tabelle mit Spot-Preis
         table = []
         for i, c in enumerate(candidates):
             table.append({
@@ -31,7 +30,7 @@ class HaikuPreselect:
                 "dte": c["dte"],
                 "delta": c["delta"],
                 "mid": c["mid_price"],
-                "spot_price": c.get("spot_price", "N/A"),        # ← NEU
+                "spot_price": c.get("spot_price", "N/A"),           # ← zentral
                 "iv_pct": c["iv_pct"],
                 "iv_rank": c["iv_rank"],
                 "oi": c["oi"],
@@ -43,29 +42,31 @@ class HaikuPreselect:
                 "prophet_direction": c.get("prophet_direction", "neutral"),
             })
 
-        prompt = f"""You are a quantitative commodity options analyst.
-Heute ist {datetime.date.today().isoformat()}.
+        prompt = f"""Du bist ein erfahrener Commodity-Options-Analyst. Heute ist {datetime.date.today().isoformat()}.
+
+Aktueller Spot-Preis des Underlyings: {table[0].get('spot_price', 'N/A')} USD (sehr wichtig!).
 
 Analysiere die folgenden {len(table)} Optionen und wähle die besten 20 aus.
 
-WICHTIG: Berücksichtige bei der Bewertung immer den aktuellen Spot-Preis des Underlyings!
+**WICHTIG**: Bewerte das Sentiment und die Attraktivität immer im Kontext des aktuellen Spot-Preises!
+Ein Put bei 105 $ ist nur sinnvoll, wenn der Spot wirklich stark fallen sollte — nicht nur weil alte Nachrichten "Öl bei 60 $" schreiben.
 
 Priority criteria (in dieser Reihenfolge):
-1. Liquidity: OI > 1000 und Volume > 50 bevorzugt
+1. Liquidity (OI > 1000 und Volume > 50 bevorzugt)
 2. Edge Score > 50
 3. MC Expected Value positiv
 4. IV-Rank > 40
-5. Delta idealerweise 0.25–0.40
+5. Delta 0.25–0.40
 
-Zusätzlich: Bewerte das News-Sentiment im Kontext des aktuellen Spot-Preises.
+Zusätzlich: Gib eine kurze, preisbezogene Begründung (z. B. "bullish, da Spot 116 $ und News von fallenden Rig Counts").
 
 Candidates JSON:
 {json.dumps(table, indent=2)}
 
-Antworte NUR mit validem JSON, nichts anderes:
+Antworte **NUR** mit validem JSON:
 {{
   "top20": [
-    {{"rank": <original_rank>, "symbol": "...", "haiku_rank": 1, "haiku_reason": "kurzer Satz mit Spot-Preis-Kontext"}}
+    {{"rank": <original_rank>, "symbol": "...", "haiku_rank": 1, "haiku_reason": "kurzer Satz mit Spot-Preis-Bezug"}}
   ],
   "eliminated_count": <number>,
   "elimination_summary": "kurze Zusammenfassung"
@@ -74,7 +75,7 @@ Antworte NUR mit validem JSON, nichts anderes:
         try:
             response = self.client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1200,
+                max_tokens=1500,
                 system="You are a quantitative options analyst. Respond only in valid JSON.",
                 messages=[{"role": "user", "content": prompt}],
             )
