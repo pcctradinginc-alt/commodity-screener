@@ -1,12 +1,14 @@
 """
 Data Fetcher — alle Datenquellen parallel
-JETZT MIT ULTRA-ROBUSTEM COT-PARSER (CFTC-Format-Änderungen abgefangen)
+FINAL VERSION mit ULTRA-ROBUSTEM COT-PARSER + yfinance-Warning-Fix
 """
 
 import os
 import datetime
 import requests
 import yfinance as yf
+import csv
+import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
 
@@ -81,7 +83,7 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
-    # ── Finnhub ──────────────────────────────────────────────────────
+    # ── Finnhub, EIA, FRED, RSS, yfinance ───────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -110,7 +112,6 @@ class DataFetcher:
             print(f"  yfinance candles error {ticker}: {e}")
             return []
 
-    # ── EIA ──────────────────────────────────────────────────────────
     def fetch_eia(self, series_id):
         url = f"https://api.eia.gov/v2/seriesid/{series_id}"
         data = self._get(url, params={"api_key": self.eia_key, "length": 4})
@@ -124,88 +125,65 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – ULTRA-ROBUST VERSION (CFTC-Format-Änderungen abgefangen) ─────────────
+    # ── COT – ULTRA-ROBUST VERSION (keine Header-Abhängigkeit) ─────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
 
         url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
         try:
-            import io
-            import csv
             resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             text = resp.text
 
-            # Zeilen aufteilen und leere Zeilen entfernen
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-
             print(f"  [COT] Gesamtzeilen im Feed: {len(lines)}")
 
-            # Header finden (erste Zeile mit "CFTC_Commodity_Code")
-            header_line = None
-            for i, line in enumerate(lines):
-                if "CFTC_Commodity_Code" in line:
-                    header_line = line
-                    print(f"  [COT] Header gefunden in Zeile {i}")
-                    break
+            results = []
+            for line in lines:
+                # csv.reader behandelt Kommas in Marktnamen korrekt
+                parts = list(csv.reader([line]))[0]
+                
+                if len(parts) < 20:
+                    continue
+                
+                row_code = parts[1].strip()   # Spalte 2 = CFTC_Commodity_Code
+                
+                if row_code == str(cot_code).strip():
+                    try:
+                        as_of = parts[2].strip()
+                        comm_long = int(parts[7].strip() or 0)
+                        comm_short = int(parts[8].strip() or 0)
+                        
+                        results.append({
+                            "as_of": as_of,
+                            "long": comm_long,
+                            "short": comm_short
+                        })
+                    except (ValueError, IndexError):
+                        continue
 
-            if not header_line:
-                print("  [COT] ❌ Kein Header mit CFTC_Commodity_Code gefunden!")
-                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_header"}
+            if not results:
+                print(f"  [COT] ❌ Code {cot_code} in den Daten nicht gefunden.")
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "not_found"}
 
-            # CSV mit korrektem Header parsen
-            reader = csv.DictReader(lines, fieldnames=header_line.split(","))
-            rows = list(reader)[1:]  # erste Zeile (Header) überspringen
-
-            matching_rows = [r for r in rows if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
-
-            if not matching_rows:
-                print(f"  [COT] ❌ Code {cot_code} NICHT gefunden.")
-                print("  Erste 5 Codes im Feed:")
-                for i, r in enumerate(rows[:5]):
-                    code = r.get("CFTC_Commodity_Code", "").strip()
-                    name = r.get("Market_and_Exchange_Name", "")[:60]
-                    print(f"     {i+1:2d}. Code={code} | {name}")
-                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "code_not_found"}
-
-            # Neueste zuerst
-            matching_rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
-            r = matching_rows[0]
-
-            comm_long = int(r.get("Comm_Positions_Long_All", 0) or 0)
-            comm_short = int(r.get("Comm_Positions_Short_All", 0) or 0)
-            as_of = r.get("Report_Date_as_YYYY-MM-DD", "")
-
-            net = comm_long - comm_short
-
-            print(f"  [COT] ✅ {cot_code} | Net-Commercial: {net:,} | as-of: {as_of}")
-
-            # Fallback auf Vorwoche falls Net=0
-            if net == 0 and len(matching_rows) > 1:
-                r2 = matching_rows[1]
-                net2 = int(r2.get("Comm_Positions_Long_All", 0)) - int(r2.get("Comm_Positions_Short_All", 0))
-                as_of2 = r2.get("Report_Date_as_YYYY-MM-DD", "")
-                print(f"  [COT] ⚠️ Net=0 → Fallback Vorwoche: {net2:,} | {as_of2}")
-                return {
-                    "net_commercial": net2,
-                    "long": int(r2.get("Comm_Positions_Long_All", 0)),
-                    "short": int(r2.get("Comm_Positions_Short_All", 0)),
-                    "as_of": as_of2 + " (fallback)",
-                }
+            results.sort(key=lambda x: x["as_of"], reverse=True)
+            r = results[0]
+            
+            net = r["long"] - r["short"]
+            print(f"  [COT] ✅ {cot_code} gefunden: Net {net:,} (Stand: {r['as_of']})")
 
             return {
                 "net_commercial": net,
-                "long": comm_long,
-                "short": comm_short,
-                "as_of": as_of,
+                "long": r["long"],
+                "short": r["short"],
+                "as_of": r["as_of"]
             }
 
         except Exception as e:
             print(f"  [COT] ❌ Fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
-    # ── FRED ─────────────────────────────────────────────────────────
     def fetch_fred(self):
         results = {}
         series = {
@@ -235,7 +213,6 @@ class DataFetcher:
                 results[name] = 0.0
         return results
 
-    # ── RSS & yfinance ───────────────────────────────────────────────
     def fetch_rss(self, query):
         url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl=en-US&gl=US&ceid=US:en"
         return self._get_text(url)
@@ -249,6 +226,11 @@ class DataFetcher:
                 df.columns = df.columns.get_level_values(-1)
             df.columns = [str(c).strip() for c in df.columns]
             df = df.reset_index()
+            
+            # FINAL FIX: Doppelte Spalten entfernen (verhindert UserWarning)
+            if df.columns.duplicated().any():
+                df = df.loc[:, ~df.columns.duplicated()]
+                
             return df.to_dict("records")
         except Exception as e:
             print(f"  yfinance error {ticker}: {e}")
