@@ -1,10 +1,9 @@
 """
 Data Fetcher — alle Datenquellen parallel
-Vollständige Version mit fix für yfinance historical options
+Erweitert um Liquidity-Indikatoren (CPI, M2, WALCL) + DXY für Phase 1
 """
 
 import os
-import json
 import datetime
 import requests
 import yfinance as yf
@@ -82,7 +81,7 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
-    # ── Finnhub & yfinance ───────────────────────────────────────────
+    # ── Finnhub ──────────────────────────────────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -111,7 +110,7 @@ class DataFetcher:
             print(f"  yfinance candles error {ticker}: {e}")
             return []
 
-    # ── EIA, COT, FRED, RSS, yfinance history ───────────────────────
+    # ── EIA ──────────────────────────────────────────────────────────
     def fetch_eia(self, series_id):
         url = f"https://api.eia.gov/v2/seriesid/{series_id}"
         data = self._get(url, params={"api_key": self.eia_key, "length": 4})
@@ -125,6 +124,7 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
+    # ── COT ──────────────────────────────────────────────────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
@@ -152,29 +152,42 @@ class DataFetcher:
             print(f"  COT fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": ""}
 
+    # ── FRED – erweitert für Liquidity Score (Phase 1) ───────────────
     def fetch_fred(self):
         results = {}
-        series = {"fed_funds_rate": "FEDFUNDS", "real_yield_10y": "DFII10", "dxy": "DTWEXBGS"}
+        series = {
+            "fed_funds_rate": "FEDFUNDS",
+            "real_yield_10y": "DFII10",
+            "dxy": "DTWEXBGS",
+            "cpi": "CPIAUCSL",           # Inflation (CPI)
+            "m2": "M2SL",                # Money Supply M2
+            "walcl": "WALCL",            # Fed Balance Sheet
+        }
         for name, sid in series.items():
             url = "https://api.stlouisfed.org/fred/series/observations"
             data = self._get(url, params={
-                "series_id": sid, "api_key": self.fred_key,
-                "sort_order": "desc", "limit": 2, "file_type": "json"
+                "series_id": sid,
+                "api_key": self.fred_key,
+                "sort_order": "desc",
+                "limit": 12,
+                "file_type": "json"
             })
             obs = data.get("observations", [])
             if obs:
                 try:
                     results[name] = float(obs[0]["value"])
                 except:
-                    results[name] = 0.05
+                    results[name] = 0.0
             else:
-                results[name] = 0.05
+                results[name] = 0.0
         return results
 
+    # ── RSS ──────────────────────────────────────────────────────────
     def fetch_rss(self, query):
         url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl=en-US&gl=US&ceid=US:en"
         return self._get_text(url)
 
+    # ── yfinance ─────────────────────────────────────────────────────
     def fetch_yfinance(self, ticker, period="2y"):
         try:
             df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
@@ -189,12 +202,12 @@ class DataFetcher:
             print(f"  yfinance error {ticker}: {e}")
             return []
 
-    # ── Historische Optionspreise (FIX: progress entfernt) ───────────
+    # ── Historische Optionspreise ────────────────────────────────────
     def fetch_historical_option(self, contract_symbol: str, period: str = "120d"):
         try:
             print(f"    Fetching historical option data for {contract_symbol} ({period})...")
             opt = yf.Ticker(contract_symbol)
-            hist = opt.history(period=period, auto_adjust=True)   # progress entfernt
+            hist = opt.history(period=period, auto_adjust=True)
             if hist.empty:
                 print(f"    ⚠️ No historical data for {contract_symbol}")
                 return []
@@ -210,6 +223,7 @@ class DataFetcher:
     def fetch_all(self):
         cfg_wl = self.cfg["watchlist"]
         all_tickers = list({t for seg in cfg_wl.values() for t in seg["tickers"]})
+
         result = {
             "quotes": {}, "candles": {}, "options_chains": {}, "tradier_quotes": {},
             "eia": {}, "cot": {}, "fred": {}, "rss": {}, "yfinance": {},
