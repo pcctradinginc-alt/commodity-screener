@@ -2,12 +2,14 @@ name: Commodity Options Screener
 
 on:
   schedule:
-    - cron: '0 6 * * *'      # täglich um 6 Uhr UTC
-  workflow_dispatch:         # manuell auslösbar
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -34,10 +36,23 @@ jobs:
           TRADIER_KEY: ${{ secrets.TRADIER_KEY }}
         run: python src/main.py
 
-      - name: Commit persistent files (force-add last_run.json)
+      - name: Commit persistent files
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add -f data/last_run.json data/*.json
-          git commit -m "Update last_run.json and positions [skip ci]" || echo "Nothing to commit"
-          git push
+          
+          # Ordner & Dummy-Datei sicherstellen
+          mkdir -p data
+          touch data/.keep
+          
+          # Force-add mit Fehlerunterdrückung
+          git add -f data/last_run.json 2>/dev/null || echo "last_run.json not found"
+          git add -f data/*.json 2>/dev/null || echo "No other json files found"
+          
+          # Nur committen, wenn wirklich etwas geändert wurde
+          if ! git diff --cached --quiet; then
+            git commit -m "Update last_run.json and positions [skip ci]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
