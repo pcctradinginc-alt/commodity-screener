@@ -1,6 +1,6 @@
 {
   "errors": [
-    "ClaudeDeepAnalysis.analyze() missing 1 required positional argument: 'context'"
+    "ClaudeDeepAnalysis.analyze() missing 1 required positional argument: 'finalists'"
   ],
-  "runtime_seconds": 25
+  "runtime_seconds": 31
 }
