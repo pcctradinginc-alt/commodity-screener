@@ -1,9 +1,9 @@
 """
-News Screener — NEUE VERSION v2
+News Screener — NEUE VERSION v2.1 (fix)
 - Strenger 10-Tage-Filter (kein aggressiver Fallback mehr)
-- Dynamische RSS-Query direkt aus config.yaml + aktuelles Jahr für Frische
-- Sehr detailliertes Logging der echten pubDates
-- Wenn keine aktuellen Artikel → Score = 0 + klarer Warnhinweis
+- Dynamische RSS-Query + aktuelles Jahr für Frische
+- Vollständiges KEYWORDS-Dict (kein Set mehr!)
+- Detailliertes Logging der pubDates
 """
 
 import datetime
@@ -12,36 +12,148 @@ import requests
 from xml.etree import ElementTree as ET
 
 
-# ── Keyword-Sets (unverändert) ─────────────────────────────────────
+# ── VOLLSTÄNDIGES KEYWORDS-DICT (exakt aus Original) ─────────────────────
 KEYWORDS = {
     "energy": {
-        "high": ["OPEC cut", "OPEC+ cut", "production cut", "supply disruption", "pipeline outage", "refinery fire", "SPR release", "inventory draw", "stock draw", "crude draw"],
-        "medium": ["OPEC meeting", "rig count", "Baker Hughes", "EIA report", "EIA weekly", "petroleum status", "WTI", "Brent", "Henry Hub"],
-        "low": ["oil price", "gas price", "crude oil", "natural gas"],
-        "negation": ["OPEC increases", "production increase", "supply surplus", "inventory build", "stock build", "demand falls", "glut"],
+        "high": [
+            "OPEC cut","OPEC+ cut","production cut","supply disruption",
+            "pipeline outage","refinery fire","refinery outage","force majeure",
+            "sanctions","embargo","export ban","Iran nuclear",
+            "Strait of Hormuz","Red Sea attack","tanker attack",
+            "SPR release","strategic reserve","inventory draw","stock draw","crude draw",
+            "natural gas shortage","LNG shortage","cold snap","heat dome",
+            "Libya shutdown","Nigeria outage","Venezuela sanction",
+            "backwardation spike","supply crisis",
+        ],
+        "medium": [
+            "OPEC meeting","OPEC output","oil output","rig count","Baker Hughes",
+            "EIA report","EIA weekly","petroleum status","gasoline demand","diesel demand",
+            "refinery utilization","crack spread","WTI rally","Brent rally",
+            "Henry Hub","natural gas storage","LNG export","contango",
+            "oil inventory","crude inventory","fuel demand",
+        ],
+        "low": [
+            "oil price","gas price","energy price","crude oil",
+            "petroleum","fuel cost","heating oil","jet fuel",
+        ],
+        "negation": [
+            "OPEC increases output","OPEC raises output","production increase",
+            "supply surplus","inventory build","stock build","crude build",
+            "demand falls","demand destruction","recession fears cut demand",
+            "cut expectations lowered","surplus expected","glut",
+            "weak demand","oversupply","ample supply",
+        ],
     },
-    "agri": { ... },   # (kannst du aus der alten Datei kopieren – bleibt gleich)
-    "metals": { ... }, # bleibt gleich
-    "equity_proxy": { ... }, # bleibt gleich
+    "agri": {
+        "high": [
+            "WASDE report","WASDE estimate","crop report","USDA forecast",
+            "acreage report","planting intentions","drought monitor",
+            "La Nina","El Nino","frost damage","flood damage","crop failure",
+            "yield cut","harvest loss","export ban grain","grain embargo",
+            "Black Sea blockade","Ukraine export","Russia wheat ban",
+            "Argentina drought","Brazil drought","Australia flood",
+            "crop disease","blight","aflatoxin","food security crisis",
+            "famine warning","global grain shortage","crush margin collapse","soy crush record",
+        ],
+        "medium": [
+            "corn production","soybean production","wheat production",
+            "grain stocks","ending stocks","carryout","carryover",
+            "export inspection","export sales","weekly export",
+            "planting progress","crop condition","crop tour",
+            "palm oil","canola","rapeseed","vegetable oil supply",
+            "fertilizer price","potash shortage","urea price",
+            "ethanol demand","ethanol mandate",
+        ],
+        "low": [
+            "corn price","wheat price","soy price","grain price",
+            "agriculture","farming outlook","harvest season",
+        ],
+        "negation": [
+            "record harvest","record crop","bumper crop","record production",
+            "higher ending stocks","surplus grain","ample supply",
+            "rainfall improves","conditions improve","weather favorable",
+            "export ban lifted","trade deal","supply adequate",
+            "yield raised","production raised","acreage increase",
+        ],
+    },
+    "metals": {
+        "high": [
+            "Fed rate decision","Fed surprise","rate hike surprise","rate cut surprise",
+            "dollar spike","DXY surge","real yield jump",
+            "China stimulus package","PBOC easing","China demand surge",
+            "mining strike","mine closure","Codelco strike","Freeport shutdown",
+            "LME squeeze","warehouse queue","cancelled warrants",
+            "gold record","silver squeeze","copper deficit",
+            "EV demand surge","battery metals shortage","lithium crisis",
+            "Russia sanction metals","palladium shortage",
+            "safe haven demand","geopolitical risk premium","war premium",
+            "central bank gold buying","gold reserve",
+        ],
+        "medium": [
+            "LME stocks","COMEX stocks","gold ETF flow","GLD inflow",
+            "copper demand","industrial demand","PMI manufacturing",
+            "aluminum smelter","zinc smelter","nickel supply",
+            "platinum supply","palladium supply",
+            "gold rally","silver rally","copper rally",
+            "Fed minutes","Fed speech","Powell",
+        ],
+        "low": [
+            "gold price","silver price","copper price","metal price",
+            "precious metals","base metals","commodities",
+        ],
+        "negation": [
+            "Fed holds rates","no rate change","dollar strengthens",
+            "gold falls","gold declines","copper surplus",
+            "China slowdown","China weak demand","PMI contracts",
+            "mine output increases","supply glut metals",
+            "ETF outflow gold","GLD outflow","rate hike expected","hawkish Fed",
+        ],
+    },
+    "equity_proxy": {
+        "high": [
+            "sector rotation energy","XLE selloff","XLE rally",
+            "commodity ETF outflow","commodity ETF inflow",
+            "fund liquidation","margin call commodity",
+            "forced selling","de-risking commodity",
+            "Fed surprise rate","CPI shock","PPI shock",
+            "recession fears","demand destruction",
+            "ESG mandate fossil","fossil fuel divestment",
+            "ExxonMobil earnings","Chevron earnings","Shell earnings","BP earnings",
+            "BHP earnings","Rio Tinto earnings","Glencore warning",
+            "unusual options activity","dark pool energy",
+        ],
+        "medium": [
+            "XLE","XOP","USO fund","GLD fund","SLV fund","COPX",
+            "commodity index","GSCI","Bloomberg commodity index",
+            "options flow energy","put call ratio energy",
+            "short interest energy","energy ETF flow",
+            "oil major guidance","mining major guidance",
+        ],
+        "low": [
+            "commodity stocks","energy stocks","mining stocks",
+            "materials sector","resources sector",
+        ],
+        "negation": [
+            "energy ETF inflows slow","commodity rally fades",
+            "oil major misses","energy sector underperforms",
+            "XLE underperform","fund inflows slow",
+            "rotation out of energy","defensive rotation",
+        ],
+    },
 }
 
 
 class NewsScreener:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.max_age_days = 10   # streng: nur letzte 10 Tage
+        self.max_age_days = 10
 
     def _build_rss_url(self, seg: str) -> str:
-        """Dynamische Query aus config.yaml + aktuelles Jahr für Frische"""
         base_query = self.cfg["watchlist"][seg].get("rss_query", "commodity news")
-        
-        # Zusätzliche Frische-Terme
         year = datetime.date.today().year
         extra = f" {year} OR today OR this week OR price"
-        
         query = f"{base_query}{extra}".strip()
         encoded = query.replace(" ", "+")
-        
         url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
         print(f"  [NEWS] Query for {seg}: {query[:80]}...")
         return url
@@ -56,7 +168,6 @@ class NewsScreener:
             return ""
 
     def _parse_titles(self, xml_str: str):
-        """Nur wirklich aktuelle Artikel (max. 10 Tage) + volles Logging"""
         titles = []
         if not xml_str:
             return titles
@@ -68,7 +179,6 @@ class NewsScreener:
         try:
             root = ET.fromstring(xml_str)
             items = root.findall(".//item")
-
             print(f"  [NEWS] Gefundene Items im Feed: {len(items)}")
 
             for item in items:
@@ -79,12 +189,10 @@ class NewsScreener:
                 pub_str = item.findtext("pubDate", "").strip()
                 pub_dt = None
 
-                # Robusteres Parsing
                 if pub_str:
                     try:
                         pub_dt = email.utils.parsedate_to_datetime(pub_str)
                     except:
-                        # Fallback-Parsing
                         for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%S%z"):
                             try:
                                 pub_dt = datetime.datetime.strptime(pub_str, fmt)
@@ -99,14 +207,16 @@ class NewsScreener:
                     if pub_dt >= cutoff:
                         titles.append(title.lower())
                         kept += 1
-                        print(f"    ✅ {age_str} | {title[:90]}")
+                        if kept <= 5:
+                            print(f"    ✅ {age_str} | {title[:90]}")
                     else:
                         skipped += 1
                         if skipped <= 3:
                             print(f"    ❌ {age_str} (zu alt) | {title[:70]}")
                 else:
                     skipped += 1
-                    print(f"    ⚠️  Kein Datum | {title[:70]}")
+                    if skipped <= 3:
+                        print(f"    ⚠️  Kein Datum | {title[:70]}")
 
             print(f"  [NEWS] → {kept} aktuelle Artikel behalten | {skipped} zu alt/ungültig")
 
@@ -119,7 +229,6 @@ class NewsScreener:
         return titles
 
     def _score_titles(self, titles, kw_dict):
-        """Scoring (unverändert, arbeitet jetzt aber nur mit frischen Titeln)"""
         total, scored = 0, []
         for title in titles:
             pos, neg, matched = 0, 0, ""
@@ -162,7 +271,6 @@ class NewsScreener:
             raw, headlines = self._score_titles(titles, KEYWORDS[seg])
             n_score = self._news_score(raw)
 
-            # Kalender-Bonus (Release-Tage)
             release_days = {"energy": [1], "agri": [4], "metals": [], "equity_proxy": []}
             cal = 1 if today.weekday() in release_days.get(seg, []) else 0
 
