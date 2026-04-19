@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + YAML-Fix
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + HaikuFix
 """
 
 import datetime
@@ -7,7 +7,7 @@ import json
 import os
 import time
 import pandas as pd
-import yaml                                      # ← NEU: für config.yaml
+import yaml                                      # ← für config.yaml
 
 from data_fetch import DataFetcher
 from news_screener import NewsScreener
@@ -64,11 +64,11 @@ def run_pipeline():
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
-        # ==================== CONFIG LADEN (KORRIGIERT) ====================
+        # ==================== CONFIG LADEN ====================
         if os.path.exists("config.yaml"):
             with open("config.yaml", "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
-            print("  ✅ config.yaml erfolgreich geladen (YAML)")
+            print("  ✅ config.yaml erfolgreich geladen")
         else:
             cfg = {}
             print("  ⚠️ config.yaml nicht gefunden → leere Config")
@@ -134,7 +134,7 @@ def run_pipeline():
                     bt = backtester.find_similar_real(candidate)
                     candidate["win_rate"] = bt.get("win_rate", 0.48)
                     all_candidates.append(candidate)
-                except Exception as e:
+                except:
                     continue
 
         print(f"  Total candidates after filter: {len(all_candidates)}")
@@ -146,7 +146,7 @@ def run_pipeline():
 
         # Stage 5
         print("Stage 5: Haiku preselection...")
-        haiku = HaikuPreselect()
+        haiku = HaikuPreselect(cfg)                    # ← FIX: cfg übergeben
         top20 = haiku.select(all_candidates, segment_scores)
 
         # Stage 6
