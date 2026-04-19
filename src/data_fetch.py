@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-FINAL VERSION mit ULTRA-ROBUSTEM COT-PARSER + yfinance-Warning-Fix
+FINAL VERSION mit Agriculture-Switch + flexibler COT-Suche
 """
 
 import os
@@ -8,7 +8,6 @@ import datetime
 import requests
 import yfinance as yf
 import csv
-import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
 
@@ -125,12 +124,19 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – ULTRA-ROBUST VERSION (keine Header-Abhängigkeit) ─────────────
+    # ── COT – FINAL VERSION mit Agriculture-Switch ─────────────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
 
-        url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
+        # Agriculture-Switch (Wheat, Corn, Soy etc.)
+        agri_codes = ["002602", "067411"]
+        if any(str(cot_code).strip() in code for code in agri_codes):
+            url = "https://www.cftc.gov/dea/newcot/c_disagg.txt"
+            print(f"  [COT] Agriculture-Switch → c_disagg.txt für Code {cot_code}")
+        else:
+            url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
+
         try:
             resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
@@ -140,16 +146,16 @@ class DataFetcher:
             print(f"  [COT] Gesamtzeilen im Feed: {len(lines)}")
 
             results = []
+            search_code = str(cot_code).strip().lstrip('0')
+
             for line in lines:
-                # csv.reader behandelt Kommas in Marktnamen korrekt
                 parts = list(csv.reader([line]))[0]
-                
                 if len(parts) < 20:
                     continue
                 
-                row_code = parts[1].strip()   # Spalte 2 = CFTC_Commodity_Code
+                row_code = parts[1].strip().lstrip('0')
                 
-                if row_code == str(cot_code).strip():
+                if search_code == row_code or search_code in row_code:
                     try:
                         as_of = parts[2].strip()
                         comm_long = int(parts[7].strip() or 0)
@@ -169,7 +175,6 @@ class DataFetcher:
 
             results.sort(key=lambda x: x["as_of"], reverse=True)
             r = results[0]
-            
             net = r["long"] - r["short"]
             print(f"  [COT] ✅ {cot_code} gefunden: Net {net:,} (Stand: {r['as_of']})")
 
@@ -226,11 +231,8 @@ class DataFetcher:
                 df.columns = df.columns.get_level_values(-1)
             df.columns = [str(c).strip() for c in df.columns]
             df = df.reset_index()
-            
-            # FINAL FIX: Doppelte Spalten entfernen (verhindert UserWarning)
             if df.columns.duplicated().any():
                 df = df.loc[:, ~df.columns.duplicated()]
-                
             return df.to_dict("records")
         except Exception as e:
             print(f"  yfinance error {ticker}: {e}")
