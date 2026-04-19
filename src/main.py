@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Complete-Candidate
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Final HTML-Fix
 """
 
 import datetime
@@ -60,7 +60,7 @@ def run_pipeline():
 
     try:
         print("=============================================================")
-        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Claude-Complete-Candidate)")
+        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Full cfg Safety)")
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
@@ -132,11 +132,9 @@ def run_pipeline():
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
                         "option_type": opt.get("option_type", "call"),
-
-                        # === ALLE FELDER, DIE CLAUDE ERWARTET ===
-                        "delta": 0.40,                    # Default (realistisch für ATM-Option)
+                        "delta": 0.40,
                         "mid_price": float(opt.get("last", 0)) or 0.0,
-                        "fair_value_bs": 0.0,             # später berechenbar
+                        "fair_value_bs": 0.0,
                         "oi": int(opt.get("open_interest", 0)) or 0,
                         "iv_pct": 0.0,
                         "iv_rank": 50,
@@ -186,8 +184,15 @@ def run_pipeline():
         print("Stage 8: Generating HTML card and sending email...")
         html_gen = HTMLCardGenerator(cfg)
         email_sender = EmailSender(cfg)
-        card = html_gen.generate(recommendation)
-        email_sender.send(card)
+
+        # KORRIGIERTER AUFRUF mit allen benötigten Argumenten
+        card = html_gen.generate(
+            recommendation,
+            segment_scores,
+            {"score": health_score},
+            {"open_positions": []}
+        )
+        email_sender.send(card, recommendation, artifact)
 
         artifact["recommendation"] = recommendation
 
