@@ -1,6 +1,7 @@
 """
 Claude Opus Final Analysis
 Full context: quantitative scores + news + COT + EIA + FRED + positions
+JETZT MIT SPOT-PREIS + AUTOMATISCHER STALE-NEWS-WARNUNG
 """
 
 import os
@@ -23,6 +24,18 @@ class ClaudeDeepAnalysis:
         seg = finalists[0].get("segment", "unknown") if finalists else "unknown"
         seg_data = seg_scores.get(seg, {})
         news_hl = " | ".join(seg_data.get("top_headlines", [])[:3]) or "keine aktuellen Schlagzeilen"
+
+        # ── NEU: Spot-Preis + Stale-News-Erkennung ─────────────────────
+        spot_price = finalists[0].get("spot_price", "N/A") if finalists else "N/A"
+        
+        news_warning = ""
+        stale_indicators = ["$60", "60 $", "brent breaks $60", "oil at 60", "breaks $60", "crude at 60"]
+        if any(ind in news_hl.lower() for ind in stale_indicators):
+            news_warning = (
+                "\n⚠️  WARNUNG: Einige Schlagzeilen enthalten veraltete Preise (z. B. $60). "
+                "IGNORIERE diese alten News und priorisiere aktuelle Fundamentaldaten, "
+                "COT, EIA und den aktuellen Spot-Preis!"
+            )
 
         cot = raw.get("cot", {}).get(seg, {})
         eia = raw.get("eia", {}).get(seg, {})
@@ -61,12 +74,16 @@ class ClaudeDeepAnalysis:
         today = datetime.date.today().isoformat()
 
         prompt = f"""Du bist ein erfahrener Commodity-Options-Analyst. Heute ist {today}.
-WICHTIG: Empfehle ausschliesslich LONG-Optionen (Kauf von Calls oder Puts).
-Kein Short-Selling, kein Verkauf von Optionen. Max. Verlust = gezahlte Praemie.
+AKTUELLER SPOT-PREIS DES UNDERLYINGS: {spot_price} USD  ← SEHR WICHTIG!
+
+{news_warning}
+
+WICHTIG: Empfehle ausschließlich LONG-Optionen (Kauf von Calls oder Puts).
+Kein Short-Selling, kein Verkauf von Optionen. Max. Verlust = gezahlte Prämie.
 
 SEGMENT: {seg.upper()} | Data as-of: {data_as_of.get(f'eia_{seg}', 'N/A')}
 
-AKTUELLE SCHLAGZEILEN (letzte 24h):
+AKTUELLE SCHLAGZEILEN (letzte 10 Tage):
 {news_hl}
 
 FUNDAMENTALDATEN:
@@ -84,18 +101,19 @@ KANDIDATEN (Long-Optionen nach Mirofish-Gate, max. 8):
 HINWEISE ZUR BEWERTUNG:
 - MC Expected Value ist in USD pro Kontrakt (100 Aktien) angegeben
 - Ein negativer EV bedeutet: statistisch verlustreich — Conviction abziehen
-- Delta sollte idealerweise 0.25-0.40 sein (direktionaler Bias ohne zu teuer)
-- IV-Rank > 50 bevorzugen (erhoehte Praemien-Umgebung)
-- Waehle die Option mit bestem Verhaeltnis EV/Praemie und realistischem Delta
+- Delta sollte idealerweise 0.25-0.40 sein
+- IV-Rank > 50 bevorzugen
+- Wähle die Option mit bestem Verhältnis EV/Praemie und realistischem Delta
+- Priorisiere immer den aktuellen Spot-Preis gegenüber alten Schlagzeilen
 
 AUFGABE:
-1. Synthese: Zeigen COT, EIA und News dieselbe Richtung? (2 konkrete Saetze)
-2. Waehle die beste LONG-Option (Call ODER Put je nach Richtung)
+1. Synthese: Zeigen COT, EIA, News und aktueller Spot-Preis dieselbe Richtung? (2 konkrete Sätze)
+2. Wähle die beste LONG-Option (Call ODER Put je nach Richtung)
 3. Conviction 1-10: -2 wenn Widerspruch News/Fundamentals, -1 wenn IV-Rank < 35,
    -1 wenn Delta < 0.20 oder > 0.45, -1 wenn MC EV negativ
 4. Fair Value vs. Marktpreis
 5. Max. Verlust = Praemie x 100
-6. MC Expected Value (aus Kandidaten-Daten uebernehmen, nicht neuberechnen)
+6. MC Expected Value (aus Kandidaten-Daten übernehmen)
 7. Win-Rate historisch
 8. Invalidierungs-Szenario (1 Satz)
 9. News-Kontext (1 Satz)
@@ -104,14 +122,14 @@ FORMAT (exakt einhalten):
 EMPFEHLUNG: [Symbol] [Strike] [Expiry] [Call/Put]
 EINSTIEG: [Mid-Preis]
 FAIR VALUE: [BS-Preis] ([+/-X% vs. Markt] oder n/a wenn tief OTM)
-CONVICTION: [1-10] — [Begruendung 1 Satz]
+CONVICTION: [1-10] — [Begründung 1 Satz]
 MAX VERLUST: $[Praemie x 100]
 EXPECTED VALUE: $[MC EV aus Kandidaten-Daten]
 WIN-RATE HISTORISCH: [X%] (n=[Stichprobe])
 THESE: [1 Satz — was muss passieren damit die Option profitabel wird]
 INVALIDIERUNG: [1 Satz]
-NEWS: [1 Satz welche Schlagzeile die These stuetzt oder widerspricht]
-DATA AS-OF: {today} (US-Boersenschluss Vortag)"""
+NEWS: [1 Satz welche Schlagzeile die These stützt oder widerspricht]
+DATA AS-OF: {today} (US-Börsenschluss Vortag)"""
 
         try:
             response = self.client.messages.create(
