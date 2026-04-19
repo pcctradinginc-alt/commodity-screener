@@ -1,5 +1,5 @@
 """
-Data Fetcher – Diagnose-Modus + Tradier-Header
+Data Fetcher – Diagnose-Modus + Tradier-Header + Options-Chains
 """
 
 import datetime
@@ -22,8 +22,8 @@ class DataFetcher:
 
         raw_data["quotes"] = self.fetch_quotes()
         raw_data["tradier_quotes"] = self.fetch_tradier_quotes()
-        raw_data["candles"] = self.fetch_candles()
         raw_data["options_chains"] = self.fetch_options_chains()
+        raw_data["candles"] = self.fetch_candles()
         raw_data["eia"] = self.fetch_eia()
         raw_data["cot"] = self.fetch_cot_data()
         raw_data["fred"] = self.fetch_fred()
@@ -91,6 +91,32 @@ class DataFetcher:
                 print(f"  [Tradier] Exception für {ticker}: {e}")
         return results
 
+    def fetch_options_chains(self):
+        api_key = os.getenv("TRADIER_KEY")
+        results = {}
+        for seg in self.cfg["watchlist"]:
+            ticker = self.cfg["watchlist"][seg]["tickers"][0]
+            exp_url = f"https://api.tradier.com/v1/markets/options/expirations?symbol={ticker}"
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'Accept': 'application/json'
+            }
+            try:
+                r_exp = self.session.get(exp_url, headers=headers, timeout=10)
+                if r_exp.status_code == 200:
+                    expirations = r_exp.json().get('expirations', {}).get('date', [])
+                    if expirations:
+                        target_date = expirations[0]
+                        chain_url = f"https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&expiration={target_date}"
+                        r_chain = self.session.get(chain_url, headers=headers, timeout=10)
+                        if r_chain.status_code == 200:
+                            chain_data = r_chain.json().get('options', {}).get('option', [])
+                            results[ticker] = chain_data
+                            print(f"  ✅ Options-Chain für {ticker} geladen ({len(chain_data)} Kontrakte)")
+            except Exception as e:
+                print(f"  ❌ Tradier Options Error für {ticker}: {e}")
+        return results
+
     def _validate_spot_prices(self, raw_data):
         spots = {}
         for seg in self.cfg.get("watchlist", {}):
@@ -127,7 +153,6 @@ class DataFetcher:
             print(f"  [COT] {ticker} → {data.get('signal_strength')} | OI-Ratio={data.get('commercial_oi_ratio')}%")
         return cot_data
 
-    def fetch_options_chains(self): return {}
     def fetch_candles(self): return {}
     def fetch_eia(self): return {}
     def fetch_fred(self): return {}
