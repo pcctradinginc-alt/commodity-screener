@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety (final)
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix
 """
 
 import datetime
@@ -153,18 +153,18 @@ def run_pipeline():
 
         # Stage 6
         print("Stage 6: Mirofish simulation...")
-        miro = MirofishChecker(cfg)                    # ← FIX
+        miro = MirofishChecker(cfg)
         passed = miro.run(top20)
 
         # Stage 7
         print("Stage 7: Claude Opus final analysis...")
-        claude = ClaudeDeepAnalysis(cfg)               # ← FIX
-        recommendation = claude.analyze(passed[0] if passed else None)
+        claude = ClaudeDeepAnalysis(cfg)
+        recommendation = claude.analyze(context=passed[0] if passed else None)   # ← FIX: context= 
 
         # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
-        html_gen = HTMLCardGenerator(cfg)              # ← FIX
-        email_sender = EmailSender(cfg)                # ← FIX
+        html_gen = HTMLCardGenerator(cfg)
+        email_sender = EmailSender(cfg)
         card = html_gen.generate(recommendation)
         email_sender.send(card)
 
