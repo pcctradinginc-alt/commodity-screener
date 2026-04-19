@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Phase 1 komplett: Liquidity Score + DXY Trend + verbesserter Haiku-Prompt
+Phase 1 komplett + korrigierte Liquidity + DXY Score
 """
 
 import json
@@ -91,7 +91,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (Phase 1 komplett) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (Phase 1 komplett + Fix) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -155,7 +155,7 @@ def run_pipeline():
         print(f"  Qualifying segments: {qualifiers}")
         raw_data["segment_scores"] = segment_scores
 
-        # ── Phase 1 Teil 2: Liquidity Score + DXY Trend ─────────────────
+        # ── Phase 1 Teil 2: Liquidity Score + DXY Trend (korrigiert) ─────────────
         fred = raw_data.get("fred", {})
         fed_funds = fred.get("fed_funds_rate", 5.0)
         cpi = fred.get("cpi", 3.0)
@@ -164,10 +164,11 @@ def run_pipeline():
         dxy = fred.get("dxy", 100.0)
 
         real_rate = fed_funds - cpi
-        liquidity_score = (real_rate - 2.0) / 2.0                    # normalisiert
-        dxy_trend = 1 if dxy > 105 else -1                          # einfacher Trend
+        # Liquidity Score normalisiert (realistischere Skalierung)
+        liquidity_score = (real_rate / 2.0) + (m2 / 20000) + (walcl / 1000000)
+        dxy_trend = 1 if dxy > 105 else -1
 
-        print(f"  Macro Context → Real Rate: {real_rate:.1f}% | Liquidity Score: {liquidity_score:.2f} | DXY Trend: {'Strong' if dxy_trend > 0 else 'Weak'}")
+        print(f"  Macro Context → Real Rate: {real_rate:.2f}% | Liquidity Score: {liquidity_score:.2f} | DXY Trend: {'Strong' if dxy_trend > 0 else 'Weak'}")
 
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
