@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-Erweitert um Liquidity-Indikatoren (CPI, M2, WALCL) + DXY für Phase 1
+JETZT MIT SUPER-ROBUSTEM COT-PARSER + DEBUG-AUSGABE
 """
 
 import os
@@ -41,7 +41,7 @@ class DataFetcher:
             print(f"  Fetch error {url[:60]}: {e}")
             return ""
 
-    # ── Tradier ──────────────────────────────────────────────────────
+    # ── Tradier, Finnhub, EIA, FRED, RSS, yfinance ── (unverändert)
     def fetch_tradier_quote(self, ticker):
         url = "https://api.tradier.com/v1/markets/quotes"
         data = self._get(url, self.headers_tradier, {"symbols": ticker})
@@ -81,7 +81,6 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
-    # ── Finnhub ──────────────────────────────────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -110,7 +109,6 @@ class DataFetcher:
             print(f"  yfinance candles error {ticker}: {e}")
             return []
 
-    # ── EIA ──────────────────────────────────────────────────────────
     def fetch_eia(self, series_id):
         url = f"https://api.eia.gov/v2/seriesid/{series_id}"
         data = self._get(url, params={"api_key": self.eia_key, "length": 4})
@@ -124,7 +122,7 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – ROBUSTE VERSION mit Fallback + besserem Parsing ─────────────
+    # ── COT – NEUE SUPER-ROBUSTE VERSION (mit Debug + Fallback) ─────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
@@ -135,19 +133,28 @@ class DataFetcher:
             import csv
             resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
+            text = resp.text
 
-            reader = csv.DictReader(io.StringIO(resp.text))
-            rows = [r for r in reader if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
+            reader = csv.DictReader(io.StringIO(text))
+            rows = list(reader)  # alle Zeilen laden
 
-            if not rows:
-                print(f"  [COT] ⚠️  Keine Daten für Code {cot_code} gefunden")
-                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_data"}
+            print(f"  [COT] Gesamtzeilen im Feed: {len(rows)}")
 
-            # Sortiere nach Datum (neueste zuerst)
-            rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
+            # Suche nach dem Code
+            matching_rows = [r for r in rows if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
 
-            # Nimm neuesten Report
-            r = rows[0]
+            if not matching_rows:
+                print(f"  [COT] ❌ Code {cot_code} NICHT gefunden. Erste 5 Zeilen zur Info:")
+                for i, r in enumerate(rows[:5]):
+                    code = r.get("CFTC_Commodity_Code", "")
+                    name = r.get("Market_and_Exchange_Name", "")[:60]
+                    print(f"     {i+1:2d}. Code={code} | {name}")
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "code_not_found"}
+
+            # Neueste zuerst
+            matching_rows.sort(key=lambda r: r.get("Report_Date_as_YYYY-MM-DD", ""), reverse=True)
+            r = matching_rows[0]
+
             comm_long = int(r.get("Comm_Positions_Long_All", 0) or 0)
             comm_short = int(r.get("Comm_Positions_Short_All", 0) or 0)
             as_of = r.get("Report_Date_as_YYYY-MM-DD", "")
@@ -156,18 +163,16 @@ class DataFetcher:
 
             print(f"  [COT] ✅ {cot_code} | Net-Commercial: {net:,} | as-of: {as_of}")
 
-            # Fallback: Wenn aktueller Report 0 ist → nimm vorherige Woche
-            if net == 0 and len(rows) > 1:
-                r2 = rows[1]
-                comm_long2 = int(r2.get("Comm_Positions_Long_All", 0) or 0)
-                comm_short2 = int(r2.get("Comm_Positions_Short_All", 0) or 0)
-                net2 = comm_long2 - comm_short2
+            # Fallback auf Vorwoche falls Net=0
+            if net == 0 and len(matching_rows) > 1:
+                r2 = matching_rows[1]
+                net2 = int(r2.get("Comm_Positions_Long_All", 0)) - int(r2.get("Comm_Positions_Short_All", 0))
                 as_of2 = r2.get("Report_Date_as_YYYY-MM-DD", "")
-                print(f"  [COT] ⚠️  Net=0 → Fallback auf Vorwoche: {net2:,} | {as_of2}")
+                print(f"  [COT] ⚠️ Net=0 → Fallback Vorwoche: {net2:,} | {as_of2}")
                 return {
                     "net_commercial": net2,
-                    "long": comm_long2,
-                    "short": comm_short2,
+                    "long": int(r2.get("Comm_Positions_Long_All", 0)),
+                    "short": int(r2.get("Comm_Positions_Short_All", 0)),
                     "as_of": as_of2 + " (fallback)",
                 }
 
@@ -182,7 +187,6 @@ class DataFetcher:
             print(f"  [COT] ❌ Fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
-    # ── FRED – erweitert für Liquidity Score (Phase 1) ───────────────
     def fetch_fred(self):
         results = {}
         series = {
@@ -212,12 +216,10 @@ class DataFetcher:
                 results[name] = 0.0
         return results
 
-    # ── RSS ──────────────────────────────────────────────────────────
     def fetch_rss(self, query):
         url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl=en-US&gl=US&ceid=US:en"
         return self._get_text(url)
 
-    # ── yfinance ─────────────────────────────────────────────────────
     def fetch_yfinance(self, ticker, period="2y"):
         try:
             df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
@@ -232,7 +234,6 @@ class DataFetcher:
             print(f"  yfinance error {ticker}: {e}")
             return []
 
-    # ── Historische Optionspreise ────────────────────────────────────
     def fetch_historical_option(self, contract_symbol: str, period: str = "120d"):
         try:
             print(f"    Fetching historical option data for {contract_symbol} ({period})...")
