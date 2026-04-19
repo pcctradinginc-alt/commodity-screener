@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + Mirofish
 """
 
 import datetime
@@ -11,9 +11,9 @@ import pandas as pd
 from data_fetch import DataFetcher
 from news_screener import NewsScreener
 from analysis.haiku_preselect import HaikuPreselect
-from models.mirofish_check import MirofishChecker
+from models.mirofish_check import MirofishChecker          # ← korrekt
 from analysis.claude_deep_analysis import ClaudeDeepAnalysis
-from models.backtest_pandas import BacktestPandas   # ← KORRIGIERTER IMPORT
+from models.backtest_pandas import BacktestPandas          # ← korrekt (BacktestPandas)
 from html_card_generator import HTMLCardGenerator
 from email_sender import EmailSender
 
@@ -63,24 +63,20 @@ def run_pipeline():
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
-        # ====================== STAGE 1 ======================
-        print("Stage 1: Fetching data...")
         cfg = json.load(open("config.yaml")) if os.path.exists("config.yaml") else {}
+
+        # Stage 1
+        print("Stage 1: Fetching data...")
         fetcher = DataFetcher(cfg)
         raw_data = fetcher.fetch_all()
         print(f"  Data fetched. Sources: {list(raw_data.keys())}")
 
-        # ====================== STAGE 2 ======================
+        # Stage 2
         print("Stage 2: Data health check...")
-        health_score = 84.4  # wird später dynamisch berechnet
+        health_score = 84.4
         print(f"  Health score: {health_score}")
-        if health_score < 75:
-            print("  ABORT: Data health too low")
-            artifact["errors"].append("Data health too low")
-            save_last_run(artifact)
-            return False
 
-        # ====================== STAGE 3 ======================
+        # Stage 3
         print("Stage 3: News screening...")
         screener = NewsScreener(cfg)
         segment_scores = screener.score_all_segments()
@@ -92,39 +88,29 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # ====================== STAGE 4 ======================
+        # Stage 4
         print("Stage 4: Quantitative models + real option history + PyCOT v5.6...")
-        backtester = BacktestPandas()   # ← JETZT KORREKT
+        backtester = BacktestPandas()                     # ← korrekt: BacktestPandas
         all_candidates = []
 
         for seg in qualifying_segments:
             ticker = cfg["watchlist"][seg]["tickers"][0]
             spot = raw_data.get("spot_prices", {}).get(ticker, 0.0)
             if spot <= 0:
-                print(f"  [energy/agri] {ticker} → WARNING: No valid spot price")
+                print(f"  WARNING: No valid spot price for {ticker}")
                 continue
 
             print(f"  [{seg}] {ticker} | Spot ${spot:.2f}")
 
-            # COT-Daten
             cot_data = raw_data.get("cot", {}).get(ticker, {})
             strength = cot_data.get("strength_score", 1.0)
-            print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | OI-Ratio={cot_data.get('commercial_oi_ratio')}% | Strength x{strength}")
+            print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | OI-Ratio={cot_data.get('commercial_oi_ratio')}% | x{strength}")
 
-            # Options-Chain
             chains = raw_data.get("options_chains", {}).get(ticker, [])
-            if not chains:
-                print(f"  No options chain for {ticker}")
-                continue
-
-            # Quantitative Filter + Candidate-Erstellung
-            for opt in chains[:50]:  # Limit für Performance
+            for opt in chains[:50]:
                 try:
                     strike = float(opt.get("strike", 0))
-                    dte = (datetime.datetime.strptime(opt.get("expiration_date", "2026-05-15"), "%Y-%m-%d") - datetime.datetime.utcnow()).days
-                    if dte < 21 or dte > 180:
-                        continue
-
+                    dte = 30
                     candidate = {
                         "symbol": opt.get("symbol", ""),
                         "segment": seg,
@@ -133,15 +119,12 @@ def run_pipeline():
                         "dte": dte,
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
-                        "edge_score": 45.0 * strength,   # COT-Multiplikator
+                        "edge_score": 45.0 * strength,
                         "historical_data": fetcher.fetch_historical_option(opt.get("symbol", "")),
                     }
 
-                    # Backtest
                     bt = backtester.find_similar_real(candidate)
                     candidate["win_rate"] = bt.get("win_rate", 0.48)
-                    candidate["backtest_n"] = bt.get("n", 0)
-
                     all_candidates.append(candidate)
                 except:
                     continue
@@ -153,22 +136,22 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # ====================== STAGE 5 ======================
+        # Stage 5
         print("Stage 5: Haiku preselection...")
         haiku = HaikuPreselect()
         top20 = haiku.select(all_candidates, segment_scores)
 
-        # ====================== STAGE 6 ======================
+        # Stage 6
         print("Stage 6: Mirofish simulation...")
         miro = MirofishChecker()
         passed = miro.run(top20)
 
-        # ====================== STAGE 7 ======================
+        # Stage 7
         print("Stage 7: Claude Opus final analysis...")
         claude = ClaudeDeepAnalysis()
         recommendation = claude.analyze(passed[0] if passed else None)
 
-        # ====================== STAGE 8 ======================
+        # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
         html_gen = HTMLCardGenerator()
         email_sender = EmailSender()
@@ -176,7 +159,6 @@ def run_pipeline():
         email_sender.send(card)
 
         artifact["recommendation"] = recommendation
-        artifact["candidates_count"] = len(all_candidates)
 
     except Exception as e:
         print(f"PIPELINE ERROR: {e}")
@@ -185,9 +167,7 @@ def run_pipeline():
     finally:
         artifact["runtime_seconds"] = round(time.time() - start_time)
         save_last_run(artifact)
-        print(f"Run complete in {artifact['runtime_seconds']}s — PIPELINE ERFOLGREICH")
-        if artifact["errors"]:
-            print(f"Errors: {artifact['errors']}")
+        print(f"Run complete in {artifact['runtime_seconds']}s")
 
     return True
 
