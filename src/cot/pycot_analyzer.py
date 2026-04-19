@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import json
 import statistics
+import datetime   # ← WICHTIG: Das fehlte!
 
 class PyCOTAnalyzer:
     def __init__(self):
@@ -48,13 +49,13 @@ class PyCOTAnalyzer:
             net_com = long_com - short_com
             total_oi = latest['Open_Interest_All']
 
-            # Momentum (Veränderung)
+            # Momentum
             momentum = (latest['Change_in_Comm_Long_All'] - latest['Change_in_Comm_Short_All']) / 1000.0
 
             # OI-Ratio
             commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
 
-            # Z-Score über alle verfügbaren Daten des Jahres
+            # Z-Score
             hist_net = market_data['Comm_Positions_Long_All'] - market_data['Comm_Positions_Short_All']
             z_score = 0.0
             if len(hist_net) > 5:
