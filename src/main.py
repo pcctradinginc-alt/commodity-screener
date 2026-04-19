@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + HaikuFix
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Backtest-Fix + Full cfg Safety
 """
 
 import datetime
@@ -7,7 +7,7 @@ import json
 import os
 import time
 import pandas as pd
-import yaml                                      # ← für config.yaml
+import yaml
 
 from data_fetch import DataFetcher
 from news_screener import NewsScreener
@@ -60,7 +60,7 @@ def run_pipeline():
 
     try:
         print("=============================================================")
-        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Backtest-Fix)")
+        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Full cfg Safety)")
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
@@ -102,7 +102,9 @@ def run_pipeline():
         all_candidates = []
 
         for seg in qualifying_segments:
-            ticker = cfg["watchlist"][seg]["tickers"][0]
+            ticker = cfg.get("watchlist", {}).get(seg, {}).get("tickers", [None])[0]
+            if not ticker:
+                continue
             spot = raw_data.get("spot_prices", {}).get(ticker, 0.0)
             if spot <= 0:
                 print(f"  WARNING: No valid spot price for {ticker}")
@@ -146,7 +148,7 @@ def run_pipeline():
 
         # Stage 5
         print("Stage 5: Haiku preselection...")
-        haiku = HaikuPreselect(cfg)                    # ← FIX: cfg übergeben
+        haiku = HaikuPreselect(cfg)                    # ← cfg
         top20 = haiku.select(all_candidates, segment_scores)
 
         # Stage 6
@@ -156,13 +158,13 @@ def run_pipeline():
 
         # Stage 7
         print("Stage 7: Claude Opus final analysis...")
-        claude = ClaudeDeepAnalysis()
+        claude = ClaudeDeepAnalysis(cfg)               # ← cfg hinzugefügt
         recommendation = claude.analyze(passed[0] if passed else None)
 
         # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
-        html_gen = HTMLCardGenerator()
-        email_sender = EmailSender()
+        html_gen = HTMLCardGenerator(cfg)              # ← cfg hinzugefügt
+        email_sender = EmailSender(cfg)                # ← cfg hinzugefügt
         card = html_gen.generate(recommendation)
         email_sender.send(card)
 
