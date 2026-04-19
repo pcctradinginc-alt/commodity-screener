@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-FINAL VERSION mit Agriculture-Switch + flexibler COT-Suche
+FINAL VERSION mit Brute-Force COT-Matcher + Agriculture-Switch + voller Diagnose
 """
 
 import os
@@ -124,14 +124,13 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – FINAL VERSION mit Agriculture-Switch ─────────────────────
+    # ── COT – BRUTE-FORCE MATCHER mit Name-Backup ─────────────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
 
-        # Agriculture-Switch (Wheat, Corn, Soy etc.)
-        agri_codes = ["002602", "067411"]
-        if any(str(cot_code).strip() in code for code in agri_codes):
+        # Agriculture-Switch
+        if str(cot_code) in ["002602", "067411"]:
             url = "https://www.cftc.gov/dea/newcot/c_disagg.txt"
             print(f"  [COT] Agriculture-Switch → c_disagg.txt für Code {cot_code}")
         else:
@@ -145,32 +144,38 @@ class DataFetcher:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             print(f"  [COT] Gesamtzeilen im Feed: {len(lines)}")
 
-            results = []
+            # Name-Backup für Fälle, in denen der Code leicht abweicht
+            name_map = {
+                "067411": "WHEAT",
+                "002602": "CORN",
+                "088691": "SILVER"
+            }
+            backup_name = name_map.get(str(cot_code).strip(), "---UNKNOWN---")
             search_code = str(cot_code).strip().lstrip('0')
 
+            print(f"  [COT] Suche nach Code '{search_code}' oder Namen '{backup_name}'")
+
+            results = []
             for line in lines:
                 parts = list(csv.reader([line]))[0]
                 if len(parts) < 20:
                     continue
-                
+
                 row_code = parts[1].strip().lstrip('0')
-                
-                if search_code == row_code or search_code in row_code:
+                row_name = parts[0].upper()
+
+                # Match: entweder Code passt ODER Backup-Name ist im Marktnamen enthalten
+                if search_code == row_code or (backup_name in row_name):
                     try:
                         as_of = parts[2].strip()
                         comm_long = int(parts[7].strip() or 0)
                         comm_short = int(parts[8].strip() or 0)
-                        
-                        results.append({
-                            "as_of": as_of,
-                            "long": comm_long,
-                            "short": comm_short
-                        })
+                        results.append({"as_of": as_of, "long": comm_long, "short": comm_short})
                     except (ValueError, IndexError):
                         continue
 
             if not results:
-                print(f"  [COT] ❌ Code {cot_code} in den Daten nicht gefunden.")
+                print(f"  [COT] ❌ Code {cot_code} (oder Name {backup_name}) in den Daten nicht gefunden.")
                 return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "not_found"}
 
             results.sort(key=lambda x: x["as_of"], reverse=True)
