@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-FinBERT + PyCOT v5 (persistente Historie + Z-Score + OI-Ratio + Strength Multiplier)
+FinBERT + PyCOT v5.1 (cot-reports) + Haiku-Fallback
 """
 
 import json
@@ -98,7 +98,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (PyCOT v5) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (PyCOT v5.1) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -161,7 +161,7 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
-        print("\nStage 4: Quantitative models + real option history + PyCOT v5...")
+        print("\nStage 4: Quantitative models + real option history + PyCOT v5.1...")
         all_candidates = []
         raw_data["historical_options"] = {}
 
@@ -170,12 +170,11 @@ def run_pipeline():
             smile = cfg["watchlist"][seg].get("smile_factor", 0.15)
             print(f"  [{seg}] {ticker}")
 
-            # PyCOT v5 Daten
+            # PyCOT v5.1 Daten
             cot_data = raw_data.get("cot", {}).get(ticker, {})
             print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | "
                   f"OI-Ratio={cot_data.get('commercial_oi_ratio', 0)}% | "
-                  f"Z-Score={cot_data.get('z_score', 0)} | "
-                  f"Momentum={cot_data.get('momentum', 0)}")
+                  f"Z-Score={cot_data.get('z_score', 0)}")
 
             strength = cot_data.get("strength_score", 1.0)
 
@@ -293,7 +292,7 @@ def run_pipeline():
                            0.3 * bt.get("win_rate", 0.5) * 100 +
                            0.3 * forecast.get("confidence", 0.5) * 100)
 
-                # PyCOT v5 Multiplikator
+                # PyCOT v5.1 Multiplikator
                 es = base_es * strength
 
                 all_candidates.append({
