@@ -2,18 +2,20 @@ name: Commodity Options Screener
 
 on:
   schedule:
-    - cron: '0 6 * * *'      # Täglich um 6:00 UTC (8:00 CEST)
-  workflow_dispatch:         # Manuell auslösbar
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
 
+    env:
+      TRADIER_TOKEN: ${{ secrets.TRADIER_TOKEN }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
