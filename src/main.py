@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Macro V7 – echte YoY + Delta-Regime + Disagreement + Idempotenz (nach Audit-Fix)
+Macro V7.1 – echte YoY + Delta-Regime + Disagreement + stabile Haiku (nach Audit)
 """
 
 import json
@@ -98,7 +98,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (Macro V7 final) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (Macro V7.1 final) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -162,7 +162,7 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
-        # ── Macro V7: echte YoY + Delta-Regime + Idempotenz ─────────────────
+        # ── Macro V7.1: echte YoY + Delta-Regime + Idempotenz ─────────────────
         fred = raw_data.get("fred", {})
         fed_funds = fred.get("fed_funds_rate", 5.0)
         cpi = fred.get("cpi", 3.0)
@@ -172,7 +172,6 @@ def run_pipeline():
 
         real_rate = fed_funds - cpi
 
-        # Echte YoY-Growth mit Initialisierungs-Bias-Fix
         prev_m2 = last_run.get("m2", 0)
         prev_walcl = last_run.get("walcl", 0)
         m2_growth = (m2 / prev_m2 - 1) if prev_m2 > 0 else 0.0
@@ -183,6 +182,8 @@ def run_pipeline():
         liq_change = m2_growth - last_run.get("m2_growth", m2_growth)
 
         regime_score = -rr_change + liq_change * 2
+        regime_score = max(min(regime_score, 10), -10)   # Clamp gegen Explosion
+
         if regime_score > 0.5:
             regime = "LIQUIDITY_EXPANSION"
         elif regime_score < -0.5:
@@ -193,7 +194,7 @@ def run_pipeline():
         macro_multiplier = {"LIQUIDITY_EXPANSION": 1.25, "TIGHTENING": 0.70, "NEUTRAL": 1.0}
         dxy_momentum = (dxy - 105) / 105
 
-        print(f"  Macro V7 → Regime: {regime} (score {regime_score:.2f}) | Liquidity Δ: {liq_change:.3f} | DXY Mom: {dxy_momentum:.3f}")
+        print(f"  Macro V7.1 → Regime: {regime} (score {regime_score:.2f}) | Liquidity Δ: {liq_change:.3f} | DXY Mom: {dxy_momentum:.3f}")
 
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
@@ -218,7 +219,6 @@ def run_pipeline():
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
 
-            # Robuster Spot-Fallback mit klarer Debug-Ausgabe
             print(f"  Debug spot sources for {ticker}:")
             print(f"    Tradier quote keys: {list(tr_quote.keys()) if tr_quote else 'EMPTY'}")
             print(f"    Finnhub quote keys: {list(fh_quote.keys()) if fh_quote else 'EMPTY'}")
@@ -299,7 +299,6 @@ def run_pipeline():
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
 
-                # Disagreement Layer (Alpha-Trigger)
                 implied_move = iv * np.sqrt(dte / 365)
                 expected_move = abs(forecast.get("drift", 0)) * np.sqrt(dte / 365)
                 disagreement = expected_move - implied_move
