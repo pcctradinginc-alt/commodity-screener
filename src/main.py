@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (option_type)
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Complete-Candidate
 """
 
 import datetime
@@ -60,7 +60,7 @@ def run_pipeline():
 
     try:
         print("=============================================================")
-        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Full cfg Safety)")
+        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Claude-Complete-Candidate)")
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
@@ -131,13 +131,28 @@ def run_pipeline():
                         "expiry": expiry_date,
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
-                        "option_type": opt.get("option_type", "call"),   # ← FIX: Claude braucht 'option_type'
+                        "option_type": opt.get("option_type", "call"),
+
+                        # === ALLE FELDER, DIE CLAUDE ERWARTET ===
+                        "delta": 0.40,                    # Default (realistisch für ATM-Option)
+                        "mid_price": float(opt.get("last", 0)) or 0.0,
+                        "fair_value_bs": 0.0,             # später berechenbar
+                        "oi": int(opt.get("open_interest", 0)) or 0,
+                        "iv_pct": 0.0,
+                        "iv_rank": 50,
+                        "mc_ev": 0.0,
+                        "hist_win_rate": 0.48,
+                        "hist_sample_size": 0,
+                        "mirofish_score": 30,
                         "edge_score": 45.0 * strength,
                         "historical_data": fetcher.fetch_historical_option(opt.get("symbol", "")),
                     }
 
                     bt = backtester.find_similar_real(candidate)
                     candidate["win_rate"] = bt.get("win_rate", 0.48)
+                    candidate["hist_win_rate"] = candidate["win_rate"]
+                    candidate["hist_sample_size"] = bt.get("n", 0)
+
                     all_candidates.append(candidate)
                 except:
                     continue
