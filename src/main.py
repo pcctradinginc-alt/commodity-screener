@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (final)
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (expiry)
 """
 
 import datetime
@@ -64,7 +64,6 @@ def run_pipeline():
         print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
         print("=============================================================")
 
-        # ==================== CONFIG LADEN ====================
         if os.path.exists("config.yaml"):
             with open("config.yaml", "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
@@ -121,12 +120,15 @@ def run_pipeline():
                 try:
                     strike = float(opt.get("strike", 0))
                     dte = 30
+                    expiry_date = (datetime.datetime.utcnow() + datetime.timedelta(days=dte)).strftime("%Y-%m-%d")
+
                     candidate = {
                         "symbol": opt.get("symbol", ""),
                         "segment": seg,
                         "ticker": ticker,
                         "strike": strike,
                         "dte": dte,
+                        "expiry": expiry_date,          # ← FIX: Claude braucht 'expiry'
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
                         "edge_score": 45.0 * strength,
@@ -160,8 +162,8 @@ def run_pipeline():
         print("Stage 7: Claude Opus final analysis...")
         claude = ClaudeDeepAnalysis(cfg)
         recommendation = claude.analyze(
-            finalists=passed,          # alle 20 Kandidaten
-            context=segment_scores     # News-Kontext für Claude
+            finalists=passed,
+            context=segment_scores
         )
 
         # Stage 8
