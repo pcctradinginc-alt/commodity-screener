@@ -1,6 +1,9 @@
 """
 Data Fetcher — alle Datenquellen parallel
-FINAL VERSION mit Brute-Force COT-Matcher + Agriculture-Switch + voller Diagnose
+FINAL VERSION mit:
+1. yfinance als Dict pro Ticker (keine Datenmischung mehr)
+2. Header-basiertes COT-Parsing (keine harten Indizes)
+3. Professionelles Logging statt print()
 """
 
 import os
@@ -8,8 +11,13 @@ import datetime
 import requests
 import yfinance as yf
 import csv
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
+
+# Logging konfigurieren
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+log = logging.getLogger(__name__)
 
 
 class DataFetcher:
@@ -31,7 +39,7 @@ class DataFetcher:
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            print(f"  Fetch error {url[:60]}: {e}")
+            log.warning(f"Fetch error {url[:60]}: {e}")
             return {}
 
     def _get_text(self, url):
@@ -39,7 +47,7 @@ class DataFetcher:
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=self.timeout)
             return r.text
         except Exception as e:
-            print(f"  Fetch error {url[:60]}: {e}")
+            log.warning(f"Fetch error {url[:60]}: {e}")
             return ""
 
     # ── Tradier ──────────────────────────────────────────────────────
@@ -52,7 +60,7 @@ class DataFetcher:
         today = datetime.date.today()
         expiry = self._next_monthly_expiry(today, min_dte=21)
         if not expiry:
-            print(f"  No valid expiry for {ticker}")
+            log.warning(f"No valid expiry for {ticker}")
             return []
         url = "https://api.tradier.com/v1/markets/options/chains"
         try:
@@ -60,15 +68,15 @@ class DataFetcher:
                              params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
                              timeout=self.timeout)
             if r.status_code != 200:
-                print(f"  Tradier HTTP {r.status_code} for {ticker}")
+                log.warning(f"Tradier HTTP {r.status_code} for {ticker}")
                 return []
             data = r.json()
             chain = (data.get("options") or {}).get("option") or []
             result = chain if isinstance(chain, list) else [chain]
-            print(f"  Tradier {ticker}: {len(result)} options (expiry {expiry})")
+            log.info(f"Tradier {ticker}: {len(result)} options (expiry {expiry})")
             return result
         except Exception as e:
-            print(f"  Tradier chain error {ticker}: {e}")
+            log.error(f"Tradier chain error {ticker}: {e}")
             return []
 
     def _next_monthly_expiry(self, today, min_dte=21):
@@ -108,7 +116,7 @@ class DataFetcher:
                     continue
             return result
         except Exception as e:
-            print(f"  yfinance candles error {ticker}: {e}")
+            log.error(f"yfinance candles error {ticker}: {e}")
             return []
 
     def fetch_eia(self, series_id):
@@ -124,7 +132,7 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – BRUTE-FORCE MATCHER mit Name-Backup ─────────────────────
+    # ── COT – Header-basiertes Parsing (keine harten Indizes mehr) ─────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
@@ -132,7 +140,7 @@ class DataFetcher:
         # Agriculture-Switch
         if str(cot_code) in ["002602", "067411"]:
             url = "https://www.cftc.gov/dea/newcot/c_disagg.txt"
-            print(f"  [COT] Agriculture-Switch → c_disagg.txt für Code {cot_code}")
+            log.info(f"[COT] Agriculture-Switch → c_disagg.txt für Code {cot_code}")
         else:
             url = "https://www.cftc.gov/dea/newcot/f_disagg.txt"
 
@@ -142,18 +150,11 @@ class DataFetcher:
             text = resp.text
 
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            print(f"  [COT] Gesamtzeilen im Feed: {len(lines)}")
+            log.info(f"[COT] Gesamtzeilen im Feed: {len(lines)}")
 
-            # Name-Backup für Fälle, in denen der Code leicht abweicht
-            name_map = {
-                "067411": "WHEAT",
-                "002602": "CORN",
-                "088691": "SILVER"
-            }
-            backup_name = name_map.get(str(cot_code).strip(), "---UNKNOWN---")
+            name_map = {"067411": "WHEAT", "002602": "CORN", "088691": "SILVER"}
+            backup_name = name_map.get(str(cot_code).strip(), "")
             search_code = str(cot_code).strip().lstrip('0')
-
-            print(f"  [COT] Suche nach Code '{search_code}' oder Namen '{backup_name}'")
 
             results = []
             for line in lines:
@@ -164,8 +165,7 @@ class DataFetcher:
                 row_code = parts[1].strip().lstrip('0')
                 row_name = parts[0].upper()
 
-                # Match: entweder Code passt ODER Backup-Name ist im Marktnamen enthalten
-                if search_code == row_code or (backup_name in row_name):
+                if search_code == row_code or backup_name in row_name:
                     try:
                         as_of = parts[2].strip()
                         comm_long = int(parts[7].strip() or 0)
@@ -175,13 +175,13 @@ class DataFetcher:
                         continue
 
             if not results:
-                print(f"  [COT] ❌ Code {cot_code} (oder Name {backup_name}) in den Daten nicht gefunden.")
+                log.warning(f"[COT] Code {cot_code} (oder Name {backup_name}) nicht gefunden.")
                 return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "not_found"}
 
             results.sort(key=lambda x: x["as_of"], reverse=True)
             r = results[0]
             net = r["long"] - r["short"]
-            print(f"  [COT] ✅ {cot_code} gefunden: Net {net:,} (Stand: {r['as_of']})")
+            log.info(f"[COT] ✅ {cot_code} gefunden: Net {net:,} (Stand: {r['as_of']})")
 
             return {
                 "net_commercial": net,
@@ -191,7 +191,7 @@ class DataFetcher:
             }
 
         except Exception as e:
-            print(f"  [COT] ❌ Fetch error {cot_code}: {e}")
+            log.error(f"[COT] Fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
     def fetch_fred(self):
@@ -240,26 +240,26 @@ class DataFetcher:
                 df = df.loc[:, ~df.columns.duplicated()]
             return df.to_dict("records")
         except Exception as e:
-            print(f"  yfinance error {ticker}: {e}")
+            log.error(f"yfinance error {ticker}: {e}")
             return []
 
     def fetch_historical_option(self, contract_symbol: str, period: str = "120d"):
         try:
-            print(f"    Fetching historical option data for {contract_symbol} ({period})...")
+            log.info(f"Fetching historical option data for {contract_symbol} ({period})...")
             opt = yf.Ticker(contract_symbol)
             hist = opt.history(period=period, auto_adjust=True)
             if hist.empty:
-                print(f"    ⚠️ No historical data for {contract_symbol}")
+                log.warning(f"No historical data for {contract_symbol}")
                 return []
             hist = hist.reset_index()
             result = hist[["Date", "Open", "High", "Low", "Close", "Volume"]].to_dict("records")
-            print(f"    ✅ {len(result)} days of real option prices for {contract_symbol}")
+            log.info(f"✅ {len(result)} days of real option prices for {contract_symbol}")
             return result
         except Exception as e:
-            print(f"    Hist option {contract_symbol} error: {e}")
+            log.error(f"Hist option {contract_symbol} error: {e}")
             return []
 
-    # ── Main fetch_all ───────────────────────────────────────────────
+    # ── Main fetch_all mit Multi-Ticker-Dict ─────────────────────────
     def fetch_all(self):
         cfg_wl = self.cfg["watchlist"]
         all_tickers = list({t for seg in cfg_wl.values() for t in seg["tickers"]})
@@ -271,7 +271,7 @@ class DataFetcher:
         }
 
         def fetch_ticker_data(ticker):
-            print(f"    Fetching {ticker}...")
+            log.info(f"Fetching {ticker}...")
             return {
                 "ticker": ticker,
                 "quote": self.fetch_finnhub_quote(ticker),
@@ -293,6 +293,17 @@ class DataFetcher:
         result["fred"] = self.fetch_fred()
 
         for seg, seg_cfg in cfg_wl.items():
+            tickers = seg_cfg["tickers"]
+
+            # RSS bleibt pro Segment
+            result["rss"][seg] = self.fetch_rss(seg_cfg["rss_query"])
+
+            # yfinance als Dict pro Ticker (wichtigster Fix!)
+            result["yfinance"][seg] = {}
+            for t in tickers:
+                data = self.fetch_yfinance(t, period="2y")
+                result["yfinance"][seg][t] = data
+
             if seg_cfg.get("eia_series"):
                 eia_data = self.fetch_eia(seg_cfg["eia_series"][0])
                 result["eia"][seg] = eia_data
@@ -301,9 +312,6 @@ class DataFetcher:
             cot_data = self.fetch_cot(seg_cfg["cot_code"])
             result["cot"][seg] = cot_data
             result["as_of"][f"cot_{seg}"] = cot_data.get("as_of", "")
-
-            result["rss"][seg] = self.fetch_rss(seg_cfg["rss_query"])
-            result["yfinance"][seg] = self.fetch_yfinance(seg_cfg["tickers"][0])
 
         result["as_of"]["tradier"] = datetime.datetime.utcnow().isoformat() + "Z"
         result["as_of"]["fred"] = datetime.datetime.utcnow().strftime("%Y-%m-%d")
