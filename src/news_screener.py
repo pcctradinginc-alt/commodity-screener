@@ -1,9 +1,8 @@
 """
-News Screener — NEUE VERSION v2.1 (fix)
-- Strenger 10-Tage-Filter (kein aggressiver Fallback mehr)
-- Dynamische RSS-Query + aktuelles Jahr für Frische
-- Vollständiges KEYWORDS-Dict (kein Set mehr!)
-- Detailliertes Logging der pubDates
+News Screener — NEUE VERSION v2.2
+- Score deutlich gelockert (qualifiziert jetzt leichter)
+- Noch bessere RSS-Queries mit aktuellen Preisen + Keywords
+- Sehr detailliertes Logging
 """
 
 import datetime
@@ -12,7 +11,7 @@ import requests
 from xml.etree import ElementTree as ET
 
 
-# ── VOLLSTÄNDIGES KEYWORDS-DICT (exakt aus Original) ─────────────────────
+# ── VOLLSTÄNDIGES KEYWORDS-DICT ─────────────────────────────────────
 KEYWORDS = {
     "energy": {
         "high": [
@@ -149,13 +148,14 @@ class NewsScreener:
         self.max_age_days = 10
 
     def _build_rss_url(self, seg: str) -> str:
-        base_query = self.cfg["watchlist"][seg].get("rss_query", "commodity news")
+        """Noch präzisere Query mit aktuellen Preisen + Keywords"""
+        base = self.cfg["watchlist"][seg].get("rss_query", "commodity")
         year = datetime.date.today().year
-        extra = f" {year} OR today OR this week OR price"
-        query = f"{base_query}{extra}".strip()
+        extra = f" {year} OR today OR this week OR price OR forecast OR outlook OR rises OR falls OR surge OR slump OR Hormuz OR OPEC"
+        query = f"{base}{extra}".strip()
         encoded = query.replace(" ", "+")
         url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
-        print(f"  [NEWS] Query for {seg}: {query[:80]}...")
+        print(f"  [NEWS] Query for {seg}: {query[:110]}...")
         return url
 
     def _fetch_rss(self, url: str) -> str:
@@ -252,11 +252,11 @@ class NewsScreener:
         return total, headlines
 
     def _news_score(self, raw):
+        """Noch lockerer Score: schon wenige Treffer reichen aus"""
         if raw == 0: return 0
-        if raw < 3:  return 1
-        if raw < 6:  return 2
-        if raw < 10: return 3
-        if raw < 15: return 4
+        if raw < 2:  return 2
+        if raw < 4:  return 3
+        if raw < 7:  return 4
         return 5
 
     def score_all_segments(self):
