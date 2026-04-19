@@ -9,9 +9,17 @@ jobs:
   run-screener:
     runs-on: ubuntu-latest
 
+    # ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
+    # Hier werden deine exakten Secret-Namen übergeben
     env:
-      TRADIER_TOKEN: ${{ secrets.TRADIER_TOKEN }}
-      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      TRADIER_KEY: ${{ secrets.TRADIER_KEY }}
+      FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+      EIA_KEY: ${{ secrets.EIA_KEY }}
+      FRED_KEY: ${{ secrets.FRED_KEY }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
 
     steps:
       - name: Checkout Repository
