@@ -1,6 +1,6 @@
 {
   "errors": [
-    "ClaudeDeepAnalysis.analyze() missing 1 required positional argument: 'context'"
+    "'expiry'"
   ],
-  "runtime_seconds": 25
+  "runtime_seconds": 46
 }
