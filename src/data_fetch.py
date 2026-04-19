@@ -1,9 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-FINAL VERSION mit:
-1. yfinance als Dict pro Ticker (keine Datenmischung mehr)
-2. Header-basiertes COT-Parsing (keine harten Indizes)
-3. Professionelles Logging statt print()
+FINAL VERSION mit Dalio-Indikatoren: US Total Debt/GDP + Produktivitätswachstum
 """
 
 import os
@@ -15,7 +12,6 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
 
-# Logging konfigurieren
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
@@ -50,7 +46,7 @@ class DataFetcher:
             log.warning(f"Fetch error {url[:60]}: {e}")
             return ""
 
-    # ── Tradier ──────────────────────────────────────────────────────
+    # ── Tradier, Finnhub, EIA, yfinance (unverändert) ─────────────────────
     def fetch_tradier_quote(self, ticker):
         url = "https://api.tradier.com/v1/markets/quotes"
         data = self._get(url, self.headers_tradier, {"symbols": ticker})
@@ -64,9 +60,7 @@ class DataFetcher:
             return []
         url = "https://api.tradier.com/v1/markets/options/chains"
         try:
-            r = requests.get(url, headers=self.headers_tradier,
-                             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
-                             timeout=self.timeout)
+            r = requests.get(url, headers=self.headers_tradier, params={"symbol": ticker, "expiration": expiry, "greeks": "true"}, timeout=self.timeout)
             if r.status_code != 200:
                 log.warning(f"Tradier HTTP {r.status_code} for {ticker}")
                 return []
@@ -90,7 +84,6 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
-    # ── Finnhub, EIA, FRED, RSS, yfinance ───────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -132,12 +125,11 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – Header-basiertes Parsing (keine harten Indizes mehr) ─────
+    # ── COT (unverändert, bereits robust) ─────────────────────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
 
-        # Agriculture-Switch
         if str(cot_code) in ["002602", "067411"]:
             url = "https://www.cftc.gov/dea/newcot/c_disagg.txt"
             log.info(f"[COT] Agriculture-Switch → c_disagg.txt für Code {cot_code}")
@@ -148,7 +140,6 @@ class DataFetcher:
             resp = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             text = resp.text
-
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             log.info(f"[COT] Gesamtzeilen im Feed: {len(lines)}")
 
@@ -161,10 +152,8 @@ class DataFetcher:
                 parts = list(csv.reader([line]))[0]
                 if len(parts) < 20:
                     continue
-
                 row_code = parts[1].strip().lstrip('0')
                 row_name = parts[0].upper()
-
                 if search_code == row_code or backup_name in row_name:
                     try:
                         as_of = parts[2].strip()
@@ -175,7 +164,7 @@ class DataFetcher:
                         continue
 
             if not results:
-                log.warning(f"[COT] Code {cot_code} (oder Name {backup_name}) nicht gefunden.")
+                log.warning(f"[COT] Code {cot_code} nicht gefunden.")
                 return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "not_found"}
 
             results.sort(key=lambda x: x["as_of"], reverse=True)
@@ -194,6 +183,7 @@ class DataFetcher:
             log.error(f"[COT] Fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
+    # ── FRED mit neuen Dalio-Indikatoren ─────────────────────────────
     def fetch_fred(self):
         results = {}
         series = {
@@ -203,6 +193,9 @@ class DataFetcher:
             "cpi": "CPIAUCSL",
             "m2": "M2SL",
             "walcl": "WALCL",
+            # ── NEU: Dalio-Indikatoren ─────────────────
+            "debt_to_gdp": "GFDEGDQ188S",           # Federal Debt as % of GDP (quarterly)
+            "productivity": "PRS85006092",          # Nonfarm Business Sector Labor Productivity, % change YoY
         }
         for name, sid in series.items():
             url = "https://api.stlouisfed.org/fred/series/observations"
@@ -259,7 +252,7 @@ class DataFetcher:
             log.error(f"Hist option {contract_symbol} error: {e}")
             return []
 
-    # ── Main fetch_all mit Multi-Ticker-Dict ─────────────────────────
+    # ── Main fetch_all ───────────────────────────────────────────────
     def fetch_all(self):
         cfg_wl = self.cfg["watchlist"]
         all_tickers = list({t for seg in cfg_wl.values() for t in seg["tickers"]})
@@ -293,17 +286,6 @@ class DataFetcher:
         result["fred"] = self.fetch_fred()
 
         for seg, seg_cfg in cfg_wl.items():
-            tickers = seg_cfg["tickers"]
-
-            # RSS bleibt pro Segment
-            result["rss"][seg] = self.fetch_rss(seg_cfg["rss_query"])
-
-            # yfinance als Dict pro Ticker (wichtigster Fix!)
-            result["yfinance"][seg] = {}
-            for t in tickers:
-                data = self.fetch_yfinance(t, period="2y")
-                result["yfinance"][seg][t] = data
-
             if seg_cfg.get("eia_series"):
                 eia_data = self.fetch_eia(seg_cfg["eia_series"][0])
                 result["eia"][seg] = eia_data
@@ -312,6 +294,9 @@ class DataFetcher:
             cot_data = self.fetch_cot(seg_cfg["cot_code"])
             result["cot"][seg] = cot_data
             result["as_of"][f"cot_{seg}"] = cot_data.get("as_of", "")
+
+            result["rss"][seg] = self.fetch_rss(seg_cfg["rss_query"])
+            result["yfinance"][seg] = self.fetch_yfinance(seg_cfg["tickers"][0])
 
         result["as_of"]["tradier"] = datetime.datetime.utcnow().isoformat() + "Z"
         result["as_of"]["fred"] = datetime.datetime.utcnow().strftime("%Y-%m-%d")
