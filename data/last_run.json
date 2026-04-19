@@ -1,6 +1,6 @@
 {
   "errors": [
-    "'expiry'"
+    "'option_type'"
   ],
-  "runtime_seconds": 46
+  "runtime_seconds": 25
 }
