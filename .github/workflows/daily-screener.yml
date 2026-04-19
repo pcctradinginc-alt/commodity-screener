@@ -1,57 +1,37 @@
-name: Daily Commodity Options Screener
+name: Commodity Options Screener
 
 on:
   schedule:
-    - cron: "0 6 * * 1-5"
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    - cron: '0 6 * * *'      # Täglich um 6:00 UTC (8:00 CEST)
+  workflow_dispatch:         # Manuell auslösbar
 
 jobs:
-  screener:
+  run-screener:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run screener pipeline
-        env:
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          TRADIER_KEY: ${{ secrets.TRADIER_KEY }}
-          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-          EIA_KEY: ${{ secrets.EIA_KEY }}
-          FRED_KEY: ${{ secrets.FRED_KEY }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+      - name: Run Commodity Options Screener
         run: python src/main.py
 
-      - name: Commit updated positions
+      - name: Commit updated files (COT history + positions)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/positions.json
-          git diff --staged --quiet || git commit -m "chore: update positions [skip ci]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "GitHub Actions"
+          git add data/*.json
+          git commit -m "Update COT history and positions [skip ci]" || exit 0
           git push
-
-      - name: Upload run artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screener-run-${{ github.run_id }}
-          path: data/last_run.json
-          retention-days: 30
