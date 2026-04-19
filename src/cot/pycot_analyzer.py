@@ -1,23 +1,20 @@
 """
-PyCOT Analyzer v5.1 – using cot-reports (stabil & zuverlässig)
+PyCOT Analyzer v5.2 – korrigiert für cot-reports (korrekte API + stabile Z-Score-Berechnung)
 """
 
 import cot_reports as cot
 import pandas as pd
 import os
-import json
-import statistics
-import datetime   # ← WICHTIG: Das fehlte!
+import datetime
 
 class PyCOTAnalyzer:
     def __init__(self):
         self.history_file = os.path.join("data", "cot_history.json")
         self.current_year = datetime.datetime.now().year
-        print("  ✅ PyCOT Analyzer v5.1 geladen (using cot-reports)")
+        print("  ✅ PyCOT Analyzer v5.2 geladen (cot-reports korrekt verbunden)")
 
     def get_cot_data(self, ticker: str):
         try:
-            # Korrekte Markt-Namen für cot-reports
             cot_map = {
                 "USO": "CRUDE OIL - NEW YORK MERCANTILE EXCHANGE",
                 "XLE": "CRUDE OIL - NEW YORK MERCANTILE EXCHANGE",
@@ -33,8 +30,8 @@ class PyCOTAnalyzer:
             if not market_name:
                 return self._default_response()
 
-            # COT-Daten für das aktuelle Jahr laden
-            df = cot.get_reports(self.current_year, "legacy_fut")
+            # Korrekter Aufruf der cot-reports Library
+            df = cot.cot_year(self.current_year, cot_report_type="legacy_fut")
 
             # Filtern auf den Markt
             market_data = df[df['Market_and_Exchange_Names'] == market_name]
@@ -49,13 +46,11 @@ class PyCOTAnalyzer:
             net_com = long_com - short_com
             total_oi = latest['Open_Interest_All']
 
-            # Momentum
             momentum = (latest['Change_in_Comm_Long_All'] - latest['Change_in_Comm_Short_All']) / 1000.0
 
-            # OI-Ratio
             commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
 
-            # Z-Score
+            # Z-Score über alle Daten des Jahres
             hist_net = market_data['Comm_Positions_Long_All'] - market_data['Comm_Positions_Short_All']
             z_score = 0.0
             if len(hist_net) > 5:
