@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude final fix
+Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Claude-Fix (final)
 """
 
 import datetime
@@ -159,7 +159,10 @@ def run_pipeline():
         # Stage 7
         print("Stage 7: Claude Opus final analysis...")
         claude = ClaudeDeepAnalysis(cfg)
-        recommendation = claude.analyze(finalists=passed[0] if passed else None)   # ← FIX: finalists=
+        recommendation = claude.analyze(
+            finalists=passed,          # alle 20 Kandidaten
+            context=segment_scores     # News-Kontext für Claude
+        )
 
         # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
