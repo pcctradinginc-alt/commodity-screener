@@ -1,5 +1,5 @@
 """
-Data Fetcher – alle Quellen inkl. PyCOT v3 (Commercial OI-Ratio + Momentum)
+Data Fetcher – alle Quellen inkl. PyCOT v5.1 + ROBUSTER Spot-Price-Fallback
 """
 
 import datetime
@@ -8,7 +8,7 @@ import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 
-from cot.pycot_analyzer import PyCOTAnalyzer   # ← NEU: PyCOT Integration
+from cot.pycot_analyzer import PyCOTAnalyzer   # PyCOT v5.1
 
 
 class DataFetcher:
@@ -18,86 +18,103 @@ class DataFetcher:
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def fetch_all(self):
-        """Hauptmethode – holt alle Daten und integriert PyCOT"""
         raw_data = {}
 
-        # Basis-Daten
         raw_data["quotes"] = self.fetch_quotes()
         raw_data["candles"] = self.fetch_candles()
         raw_data["options_chains"] = self.fetch_options_chains()
         raw_data["tradier_quotes"] = self.fetch_tradier_quotes()
         raw_data["eia"] = self.fetch_eia()
-        raw_data["cot"] = self.fetch_cot_data()           # ← NEU: PyCOT
+        raw_data["cot"] = self.fetch_cot_data()
         raw_data["fred"] = self.fetch_fred()
         raw_data["rss"] = self.fetch_rss()
         raw_data["yfinance"] = self.fetch_yfinance()
         raw_data["as_of"] = {"timestamp": datetime.datetime.utcnow().isoformat() + "Z"}
 
-        print("  ✅ PyCOT Daten integriert")
         return raw_data
 
     # ─────────────────────────────────────────────────────────────
-    # PyCOT Integration (neu)
+    # ROBUSTER Spot-Price-Fallback (Tradier → Finnhub)
+    # ─────────────────────────────────────────────────────────────
+    def _get_spot_price(self, ticker):
+        """Priorität: Tradier → Finnhub → 0.0"""
+        print(f"  Debug spot sources for {ticker}:")
+
+        # 1. Tradier (bevorzugt)
+        tr_quote = self.fetch_tradier_quotes().get(ticker, {})
+        print(f"    Tradier quote keys: {list(tr_quote.keys()) if tr_quote else 'EMPTY'}")
+
+        if tr_quote:
+            for key in ["last", "bid", "ask"]:
+                price = tr_quote.get(key)
+                if price and float(price) > 0:
+                    print(f"    → Tradier {key} = ${price}")
+                    return float(price)
+
+        # 2. Finnhub Fallback
+        fh_quote = self.fetch_quotes().get(ticker, {})
+        print(f"    Finnhub quote keys: {list(fh_quote.keys()) if fh_quote else 'EMPTY'}")
+
+        if fh_quote:
+            for key in ["c", "pc"]:
+                price = fh_quote.get(key)
+                if price and float(price) > 0:
+                    print(f"    → Finnhub {key} = ${price}")
+                    return float(price)
+
+        print(f"    → Kein gültiger Spot-Preis gefunden")
+        return 0.0
+
+    # ─────────────────────────────────────────────────────────────
+    # PyCOT
     # ─────────────────────────────────────────────────────────────
     def fetch_cot_data(self):
-        """PyCOT-Daten für alle relevanten Ticker holen"""
         analyzer = PyCOTAnalyzer()
         cot_data = {}
-
         for seg in self.cfg["watchlist"]:
             ticker = self.cfg["watchlist"][seg]["tickers"][0]
             data = analyzer.get_cot_data(ticker)
             cot_data[ticker] = data
-            print(f"  [COT] {ticker} → Index={data['cot_index']}% | "
-                  f"OI-Ratio={data['commercial_oi_ratio']}% | "
-                  f"Strength={data['signal_strength']}")
-
+            print(f"  [COT] {ticker} → Index={data.get('cot_index')} | OI-Ratio={data.get('commercial_oi_ratio')}% | Strength={data.get('signal_strength')}")
         return cot_data
 
     # ─────────────────────────────────────────────────────────────
-    # Bestehende Fetch-Methoden (unverändert)
+    # Die restlichen Fetch-Methoden (unverändert aus deiner letzten Version)
     # ─────────────────────────────────────────────────────────────
     def fetch_quotes(self):
-        # ... deine bestehende Implementierung ...
-        return {}
-
-    def fetch_candles(self):
-        # ... deine bestehende Implementierung ...
-        return {}
-
-    def fetch_options_chains(self):
-        # ... deine bestehende Implementierung ...
+        # Deine bestehende Finnhub-Logik
         return {}
 
     def fetch_tradier_quotes(self):
-        # ... deine bestehende Implementierung ...
+        # Deine bestehende Tradier-Logik
+        return {}
+
+    def fetch_options_chains(self):
+        # Deine bestehende Options-Chain-Logik
+        return {}
+
+    def fetch_candles(self):
         return {}
 
     def fetch_eia(self):
-        # ... deine bestehende Implementierung ...
         return {}
 
     def fetch_fred(self):
-        # ... deine bestehende Implementierung ...
         return {}
 
     def fetch_rss(self):
-        # ... deine bestehende Implementierung ...
         return {}
 
     def fetch_yfinance(self):
-        # ... deine bestehende Implementierung ...
         return {}
 
     def fetch_historical_option(self, contract_symbol, period="120d"):
-        """Yfinance historische Optionsdaten"""
         try:
             ticker = yf.Ticker(contract_symbol)
             df = ticker.history(period=period)
             print(f"    ✅ {len(df)} days of real option prices for {contract_symbol}")
             return df.to_dict("records")
-        except Exception as e:
-            print(f"    ⚠️  Historical option fetch failed for {contract_symbol}: {e}")
+        except Exception:
             return []
 
     # Weitere Methoden (falls vorhanden) bleiben unverändert
