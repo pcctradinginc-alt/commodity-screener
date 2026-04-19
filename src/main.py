@@ -155,7 +155,7 @@ def run_pipeline():
         print(f"  Qualifying segments: {qualifiers}")
         raw_data["segment_scores"] = segment_scores
 
-        # ── NEU: Liquidity Score + DXY Trend berechnen (Phase 1 Teil 2) ──
+        # ── Phase 1 Teil 2: Liquidity Score + DXY Trend ─────────────────
         fred = raw_data.get("fred", {})
         fed_funds = fred.get("fed_funds_rate", 5.0)
         cpi = fred.get("cpi", 3.0)
@@ -164,8 +164,8 @@ def run_pipeline():
         dxy = fred.get("dxy", 100.0)
 
         real_rate = fed_funds - cpi
-        liquidity_score = (real_rate - 2.0) / 2.0                     # normalisiert
-        dxy_trend = 1 if dxy > 105 else -1                           # einfacher Trend
+        liquidity_score = (real_rate - 2.0) / 2.0                    # normalisiert
+        dxy_trend = 1 if dxy > 105 else -1                          # einfacher Trend
 
         print(f"  Macro Context → Real Rate: {real_rate:.1f}% | Liquidity Score: {liquidity_score:.2f} | DXY Trend: {'Strong' if dxy_trend > 0 else 'Weak'}")
 
@@ -208,7 +208,6 @@ def run_pipeline():
                 continue
 
             for option in chain:
-                # ... (Filter-Block bleibt identisch wie bisher) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
