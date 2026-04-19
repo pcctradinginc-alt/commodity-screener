@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Macro V7 – echte Zeitreihe + Ray Dalio-Indikatoren (Debt/GDP + Produktivität)
+Macro V7 – echte YoY + Delta-Regime + Disagreement + Idempotenz (nach Audit-Fix)
 """
 
 import json
@@ -11,7 +11,6 @@ import datetime
 import traceback
 import yaml
 import numpy as np
-import logging
 
 from data_fetch import DataFetcher
 from preprocessing import DataHealthChecker
@@ -25,9 +24,6 @@ from analysis.mirofish_check import MirofishChecker
 from analysis.claude_deep_analysis import ClaudeDeepAnalysis
 from html_card_generator import HTMLCardGenerator
 from email_sender import EmailSender
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-log = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
@@ -44,7 +40,7 @@ def load_last_run():
     if os.path.exists(LAST_RUN_PATH):
         with open(LAST_RUN_PATH) as f:
             return json.load(f)
-    return {"m2": 0, "walcl": 0, "real_rate": 0, "m2_growth": 0, "dxy": 100, "debt_gdp": 120, "productivity": 1.0}
+    return {"m2": 0, "walcl": 0, "real_rate": 0, "m2_growth": 0, "dxy": 100, "timestamp": None}
 
 
 def save_last_run(artifact):
@@ -101,9 +97,9 @@ def update_expired_positions(positions):
 def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    log.info(f"\n{'='*60}")
-    log.info(f"Commodity Options Screener v3.2-final (Macro V7 mit Dalio) — Run {run_id}")
-    log.info(f"{'='*60}\n")
+    print(f"\n{'='*60}")
+    print(f"Commodity Options Screener v3.2-final (Macro V7 final) — Run {run_id}")
+    print(f"{'='*60}\n")
 
     cfg = load_config()
     positions = load_positions()
@@ -128,81 +124,76 @@ def run_pipeline():
         "real_backtest_used": True,
     }
 
-    raw_data = {}
-    fred = {}
-    segment_scores = {}
-    qualifiers = []
-    health = {}
-
     try:
-        log.info("Stage 1: Fetching data...")
+        print("Stage 1: Fetching data...")
         fetcher = DataFetcher(cfg)
         raw_data = fetcher.fetch_all()
         artifact["data_as_of"] = raw_data.get("as_of", {})
+        print(f"  Data fetched. Sources: {list(raw_data.keys())}")
 
-        log.info("\nStage 2: Data health check...")
+        print("\nStage 2: Data health check...")
         checker = DataHealthChecker(cfg)
         health = checker.compute(raw_data)
         artifact["data_health"] = health
-        log.info(f"  Health score: {health['score']:.1f}")
+        print(f"  Health score: {health['score']:.1f}")
 
         if health["score"] < thr["data_health_min"]:
             msg = f"Data health {health['score']:.1f} < {thr['data_health_min']} — aborting"
-            log.warning(f"  ABORT: {msg}")
+            print(f"  ABORT: {msg}")
             artifact["errors"].append(msg)
+            save_last_run(artifact)
             return False
 
-        log.info("\nStage 3: News screening...")
+        print("\nStage 3: News screening...")
         screener = NewsScreener(cfg)
         segment_scores = screener.score_all_segments()
         artifact["segments"] = segment_scores
 
-        qualifiers = [seg for seg, data in segment_scores.items() if data["total_score"] >= thr["segment_score_min"]]
+        qualifiers = [
+            seg for seg, data in segment_scores.items()
+            if data["total_score"] >= thr["segment_score_min"]
+        ]
         qualifiers = sorted(qualifiers, key=lambda s: segment_scores[s]["total_score"], reverse=True)[:thr["max_qualifiers"]]
 
         if not qualifiers:
-            log.info("  No segments qualify today — pipeline ends")
+            print("  No segments qualify today — pipeline ends")
+            save_last_run(artifact)
             return False
 
-        log.info(f"  Qualifying segments: {qualifiers}")
+        print(f"  Qualifying segments: {qualifiers}")
 
-        # ── Macro V7 mit Ray Dalio-Indikatoren ─────────────────────────────
+        # ── Macro V7: echte YoY + Delta-Regime + Idempotenz ─────────────────
         fred = raw_data.get("fred", {})
         fed_funds = fred.get("fed_funds_rate", 5.0)
         cpi = fred.get("cpi", 3.0)
         m2 = fred.get("m2", 0)
         walcl = fred.get("walcl", 0)
         dxy = fred.get("dxy", 100.0)
-        debt_gdp = fred.get("debt_to_gdp", 120.0)          # NEU
-        productivity = fred.get("productivity", 1.0)       # NEU
 
         real_rate = fed_funds - cpi
 
-        prev_m2 = last_run.get("m2", m2)
-        prev_walcl = last_run.get("walcl", walcl)
-        m2_growth = (m2 / prev_m2 - 1) if prev_m2 > 0 else 0
-        walcl_growth = (walcl / prev_walcl - 1) if prev_walcl > 0 else 0
+        # Echte YoY-Growth mit Initialisierungs-Bias-Fix
+        prev_m2 = last_run.get("m2", 0)
+        prev_walcl = last_run.get("walcl", 0)
+        m2_growth = (m2 / prev_m2 - 1) if prev_m2 > 0 else 0.0
+        walcl_growth = (walcl / prev_walcl - 1) if prev_walcl > 0 else 0.0
 
-        # NEU: Dalio-Faktoren
-        debt_gdp_change = debt_gdp - last_run.get("debt_gdp", debt_gdp)
-        productivity_change = productivity - last_run.get("productivity", productivity)
+        prev_real_rate = last_run.get("real_rate", real_rate)
+        rr_change = real_rate - prev_real_rate
+        liq_change = m2_growth - last_run.get("m2_growth", m2_growth)
 
-        # Erweiterter Regime-Score
-        regime_score = -real_rate * 0.4 + m2_growth * 2.0 + walcl_growth * 1.5 - debt_gdp_change * 0.8 + productivity_change * 1.2
-
-        if regime_score > 0.6:
+        regime_score = -rr_change + liq_change * 2
+        if regime_score > 0.5:
             regime = "LIQUIDITY_EXPANSION"
-        elif regime_score < -0.6:
+        elif regime_score < -0.5:
             regime = "TIGHTENING"
         else:
             regime = "NEUTRAL"
 
-        macro_multiplier = {"LIQUIDITY_EXPANSION": 1.35, "TIGHTENING": 0.65, "NEUTRAL": 1.0}
+        macro_multiplier = {"LIQUIDITY_EXPANSION": 1.25, "TIGHTENING": 0.70, "NEUTRAL": 1.0}
         dxy_momentum = (dxy - 105) / 105
 
-        log.info(f"  Macro V7 (Dalio) → Regime: {regime} (score {regime_score:.2f}) | Debt/GDP: {debt_gdp:.1f}% | Productivity: {productivity:.2f}%")
-
-        # ... (Stage 4–8 bleiben fast unverändert – nur Macro-Multiplier wird verwendet)
+        print(f"  Macro V7 → Regime: {regime} (score {regime_score:.2f}) | Liquidity Δ: {liq_change:.3f} | DXY Mom: {dxy_momentum:.3f}")
 
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
@@ -211,7 +202,7 @@ def run_pipeline():
         for seg in qualifiers:
             ticker = cfg["watchlist"][seg]["tickers"][0]
             smile = cfg["watchlist"][seg].get("smile_factor", 0.15)
-            log.info(f"  [{seg}] {ticker}")
+            print(f"  [{seg}] {ticker}")
 
             prophet = ProphetForecaster(cfg, raw_data)
             forecast = prophet.forecast(seg)
@@ -227,14 +218,19 @@ def run_pipeline():
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
 
+            # Robuster Spot-Fallback mit klarer Debug-Ausgabe
+            print(f"  Debug spot sources for {ticker}:")
+            print(f"    Tradier quote keys: {list(tr_quote.keys()) if tr_quote else 'EMPTY'}")
+            print(f"    Finnhub quote keys: {list(fh_quote.keys()) if fh_quote else 'EMPTY'}")
+
             spot = (
                 float(tr_quote.get("last", 0) or tr_quote.get("bid", 0) or tr_quote.get("ask", 0) or 0) or
                 float(fh_quote.get("c", 0) or fh_quote.get("pc", 0) or 0) or 0.0
             )
-            log.info(f"  Final spot {ticker}: ${spot:.2f}")
+            print(f"  Final spot {ticker}: ${spot:.2f}")
 
             if spot <= 0:
-                log.warning(f"  WARNING: No valid spot price for {ticker} — skipping segment")
+                print(f"  WARNING: No valid spot price for {ticker} — skipping segment")
                 continue
 
             for option in chain:
@@ -303,6 +299,7 @@ def run_pipeline():
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
 
+                # Disagreement Layer (Alpha-Trigger)
                 implied_move = iv * np.sqrt(dte / 365)
                 expected_move = abs(forecast.get("drift", 0)) * np.sqrt(dte / 365)
                 disagreement = expected_move - implied_move
@@ -371,22 +368,23 @@ def run_pipeline():
                     "disagreement": round(disagreement, 3),
                 })
 
-            log.info(f"  Filter stats {ticker}: {filter_stats}")
+            print(f"  Filter stats {ticker}: {filter_stats}")
 
         artifact["candidates_pre_haiku"] = len(all_candidates)
-        log.info(f"  Total candidates after filter: {len(all_candidates)}")
+        print(f"  Total candidates after filter: {len(all_candidates)}")
 
         if not all_candidates:
-            log.info("  No candidates after quantitative filter")
+            print("  No candidates after quantitative filter")
+            save_last_run(artifact)
             return False
 
-        log.info("\nStage 5: Haiku preselection...")
+        print("\nStage 5: Haiku preselection...")
         haiku = HaikuPreselect(cfg)
         top20 = haiku.select(all_candidates)
         artifact["candidates_post_haiku"] = len(top20)
-        log.info(f"  Haiku selected: {len(top20)} candidates")
+        print(f"  Haiku selected: {len(top20)} candidates")
 
-        log.info("\nStage 6: Mirofish simulation...")
+        print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
         mirofish_results, timeouts = mirofish.check_all(top20, raw_data)
         artifact["mirofish_timeouts"] = timeouts
@@ -395,13 +393,14 @@ def run_pipeline():
         finalists = [r for r in mirofish_results if r.get("mirofish_score", 0) > thr["mirofish_score_min"]]
         finalists.sort(key=lambda x: x.get("mirofish_score", 0), reverse=True)
         artifact["candidates_post_mirofish"] = len(finalists)
-        log.info(f"  Mirofish passed: {len(finalists)} candidates (timeouts: {timeouts})")
+        print(f"  Mirofish passed: {len(finalists)} candidates (timeouts: {timeouts})")
 
         if not finalists:
-            log.info("  No candidates passed Mirofish gate")
+            print("  No candidates passed Mirofish gate")
+            save_last_run(artifact)
             return False
 
-        log.info("\nStage 7: Claude Opus final analysis...")
+        print("\nStage 7: Claude Opus final analysis...")
         analyst = ClaudeDeepAnalysis(cfg)
         context = {
             "raw_data": raw_data,
@@ -411,15 +410,15 @@ def run_pipeline():
         }
         recommendation = analyst.analyze(finalists[:8], context)
         artifact["final_recommendation"] = recommendation
-        log.info(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
+        print(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
 
-        log.info("\nStage 8: Generating HTML card and sending email...")
+        print("\nStage 8: Generating HTML card and sending email...")
         gen = HTMLCardGenerator(cfg)
         html = gen.generate(recommendation, segment_scores, health, positions)
 
         sender = EmailSender(cfg)
         sender.send(html, recommendation)
-        log.info("  Email sent successfully")
+        print("  Email sent successfully")
 
         positions = update_expired_positions(positions)
         save_positions(positions)
@@ -427,21 +426,19 @@ def run_pipeline():
     except Exception as e:
         tb = traceback.format_exc()
         artifact["errors"].append(str(e))
-        log.error(f"\nPIPELINE ERROR: {e}\n{tb}")
+        print(f"\nPIPELINE ERROR: {e}\n{tb}")
 
     finally:
         artifact["m2"] = fred.get("m2", 0)
         artifact["walcl"] = fred.get("walcl", 0)
-        artifact["real_rate"] = fred.get("fed_funds_rate", 5.0) - fred.get("cpi", 3.0) if fred else 0
-        artifact["debt_gdp"] = fred.get("debt_to_gdp", 120.0)
-        artifact["productivity"] = fred.get("productivity", 1.0)
-        artifact["m2_growth"] = 0
-        artifact["dxy"] = fred.get("dxy", 100) if fred else 100
+        artifact["real_rate"] = real_rate
+        artifact["m2_growth"] = m2_growth
+        artifact["dxy"] = dxy
+        save_last_run(artifact)
 
         artifact["runtime_seconds"] = round(time.time() - start_time)
-        log.info(f"\nRun complete in {artifact['runtime_seconds']}s")
-        log.info(f"Errors: {artifact['errors'] or 'none'}")
-        save_last_run(artifact)
+        print(f"\nRun complete in {artifact['runtime_seconds']}s — PIPELINE ERFOLGREICH")
+        print(f"Errors: {artifact['errors'] or 'none'}")
 
     return not artifact["errors"]
 
