@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Macro V6 – echte Zeitreihe + Delta-Regime + Disagreement + Penalty
+Macro V6 – echte Zeitreihe + Delta-Regime + Disagreement + Penalty (korrigiert)
 """
 
 import json
@@ -40,7 +40,7 @@ def load_last_run():
     if os.path.exists(LAST_RUN_PATH):
         with open(LAST_RUN_PATH) as f:
             return json.load(f)
-    return {"m2": 0, "walcl": 0, "real_rate": 0, "dxy": 100}
+    return {"m2": 0, "walcl": 0, "real_rate": 0, "m2_growth": 0, "dxy": 100}
 
 
 def save_last_run(artifact):
@@ -98,7 +98,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (Macro V6) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (Macro V6 fix) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -172,13 +172,11 @@ def run_pipeline():
 
         real_rate = fed_funds - cpi
 
-        # Echte YoY-Growth aus letztem Run
         prev_m2 = last_run.get("m2", m2)
         prev_walcl = last_run.get("walcl", walcl)
         m2_growth = (m2 / prev_m2 - 1) if prev_m2 > 0 else 0
         walcl_growth = (walcl / prev_walcl - 1) if prev_walcl > 0 else 0
 
-        # Delta für Regime
         prev_real_rate = last_run.get("real_rate", real_rate)
         rr_change = real_rate - prev_real_rate
         liq_change = m2_growth - last_run.get("m2_growth", m2_growth)
@@ -219,9 +217,10 @@ def run_pipeline():
             fh_quote = raw_data.get("quotes", {}).get(ticker, {})
             tr_quote = raw_data.get("tradier_quotes", {}).get(ticker, {})
 
-            spot = float(tr_quote.get("last", 0) or tr_quote.get("bid", 0) or tr_quote.get("ask", 0) or 0) or \
-                   float(fh_quote.get("c", 0) or fh_quote.get("pc", 0) or 0) or 0.0
-
+            spot = (
+                float(tr_quote.get("last", 0) or tr_quote.get("bid", 0) or tr_quote.get("ask", 0) or 0) or
+                float(fh_quote.get("c", 0) or fh_quote.get("pc", 0) or 0) or 0.0
+            )
             print(f"  Final spot {ticker}: ${spot:.2f}")
 
             if spot <= 0:
@@ -294,30 +293,42 @@ def run_pipeline():
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
 
-                # Disagreement Layer (echter Alpha-Trigger)
+                # Disagreement Layer
                 implied_move = iv * np.sqrt(dte / 365)
                 expected_move = abs(forecast.get("drift", 0)) * np.sqrt(dte / 365)
                 disagreement = expected_move - implied_move
 
-                candidate_for_bt = { ... }  # wie bisher
-
+                candidate_for_bt = {
+                    "symbol": contract_symbol,
+                    "segment": seg,
+                    "ticker": ticker,
+                    "spot_price": spot,
+                    "strike": option.get("strike"),
+                    "expiry": option.get("expiration_date", ""),
+                    "option_type": option.get("option_type", "call"),
+                    "dte": dte,
+                    "delta": delta,
+                    "mid_price": mid,
+                    "iv_pct": iv * 100,
+                    "iv_rank": segment_scores[seg].get("iv_rank", 0),
+                    "oi": oi,
+                }
                 bt = backtester.find_similar_real(candidate_for_bt)
 
                 ev_pct = ev / max(mid, 0.01) * 100
                 ev_normalized = max(min(ev_pct, 100), -100)
                 ev_component = (ev_normalized + 100) / 2
 
-                # Vereinfachter Edge Score
-                base_es = (0.4 * ev_component + 0.3 * bt.get("win_rate", 0.5) * 100 +
+                base_es = (0.4 * ev_component +
+                           0.3 * bt.get("win_rate", 0.5) * 100 +
                            0.3 * forecast.get("confidence", 0.5) * 100)
 
-                # Macro als Multiplier + DXY + Disagreement
                 es = base_es * macro_multiplier[regime]
                 if dxy_momentum > 0.05:
                     es *= 0.85
                 elif dxy_momentum < -0.05:
                     es *= 1.10
-                if disagreement > 0.05:   # Forecast > Implied Move = Edge
+                if disagreement > 0.05:
                     es *= 1.15
 
                 all_candidates.append({
