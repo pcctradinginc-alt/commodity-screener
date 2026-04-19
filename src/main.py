@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Phase 1 komplett + Macro V4 (Regime-Gate + Multiplier + vereinfachter Edge)
+Macro V6 – echte Zeitreihe + Delta-Regime + Disagreement + Penalty
 """
 
 import json
@@ -36,15 +36,11 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def load_positions():
-    with open(POSITIONS_PATH) as f:
-        return json.load(f)
-
-
-def save_positions(positions):
-    positions["last_updated"] = datetime.datetime.utcnow().isoformat() + "Z"
-    with open(POSITIONS_PATH, "w") as f:
-        json.dump(positions, f, indent=2)
+def load_last_run():
+    if os.path.exists(LAST_RUN_PATH):
+        with open(LAST_RUN_PATH) as f:
+            return json.load(f)
+    return {"m2": 0, "walcl": 0, "real_rate": 0, "dxy": 100}
 
 
 def save_last_run(artifact):
@@ -73,16 +69,42 @@ def save_last_run(artifact):
         json.dump(artifact, f, indent=2)
 
 
+def load_positions():
+    with open(POSITIONS_PATH) as f:
+        return json.load(f)
+
+
+def save_positions(positions):
+    positions["last_updated"] = datetime.datetime.utcnow().isoformat() + "Z"
+    with open(POSITIONS_PATH, "w") as f:
+        json.dump(positions, f, indent=2)
+
+
+def update_expired_positions(positions, tradier_key):
+    today = datetime.date.today()
+    for pos in positions["open_positions"][:]:
+        expiry = datetime.date.fromisoformat(pos["expiry"])
+        if expiry < today:
+            pos["status"] = "expired"
+            pos["exit_date"] = today.isoformat()
+            pos["exit_price"] = 0.0
+            pos["pnl"] = -pos["entry_price"] * 100
+            positions["closed_positions"].append(pos)
+            positions["open_positions"].remove(pos)
+    return positions
+
+
 def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final (Macro V4) — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (Macro V6) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
     positions = load_positions()
     thr = cfg["thresholds"]
+    last_run = load_last_run()
 
     artifact = {
         "run_id": run_id,
@@ -127,7 +149,10 @@ def run_pipeline():
         segment_scores = screener.score_all_segments()
         artifact["segments"] = segment_scores
 
-        qualifiers = [seg for seg, data in segment_scores.items() if data["total_score"] >= thr["segment_score_min"]]
+        qualifiers = [
+            seg for seg, data in segment_scores.items()
+            if data["total_score"] >= thr["segment_score_min"]
+        ]
         qualifiers = sorted(qualifiers, key=lambda s: segment_scores[s]["total_score"], reverse=True)[:thr["max_qualifiers"]]
 
         if not qualifiers:
@@ -137,7 +162,7 @@ def run_pipeline():
 
         print(f"  Qualifying segments: {qualifiers}")
 
-        # ── Macro V4: Regime + Multiplier + Gate (dein Vorschlag) ─────────────────
+        # ── Macro V6: echte YoY + Delta-Regime + Disagreement ─────────────────
         fred = raw_data.get("fred", {})
         fed_funds = fred.get("fed_funds_rate", 5.0)
         cpi = fred.get("cpi", 3.0)
@@ -146,26 +171,30 @@ def run_pipeline():
         dxy = fred.get("dxy", 100.0)
 
         real_rate = fed_funds - cpi
-        rr_score = abs(real_rate) * 2 if real_rate < 0 else -real_rate
 
-        m2_growth = (m2 / max(m2 - 2000, 1) - 1) if m2 > 0 else 0
-        walcl_growth = (walcl / max(walcl - 700, 1) - 1) if walcl > 0 else 0
+        # Echte YoY-Growth aus letztem Run
+        prev_m2 = last_run.get("m2", m2)
+        prev_walcl = last_run.get("walcl", walcl)
+        m2_growth = (m2 / prev_m2 - 1) if prev_m2 > 0 else 0
+        walcl_growth = (walcl / prev_walcl - 1) if prev_walcl > 0 else 0
 
-        liquidity_score = rr_score + m2_growth * 5 + walcl_growth * 5
-        dxy_momentum = (dxy - 105) / 105
+        # Delta für Regime
+        prev_real_rate = last_run.get("real_rate", real_rate)
+        rr_change = real_rate - prev_real_rate
+        liq_change = m2_growth - last_run.get("m2_growth", m2_growth)
 
-        # Regime Detection
-        if real_rate < 0 and m2_growth > 0:
+        regime_score = -rr_change + liq_change * 2
+        if regime_score > 0.5:
             regime = "LIQUIDITY_EXPANSION"
-        elif real_rate > 2 and m2_growth < 0:
+        elif regime_score < -0.5:
             regime = "TIGHTENING"
         else:
             regime = "NEUTRAL"
 
-        # Macro als Multiplier + Gate
         macro_multiplier = {"LIQUIDITY_EXPANSION": 1.25, "TIGHTENING": 0.70, "NEUTRAL": 1.0}
+        dxy_momentum = (dxy - 105) / 105
 
-        print(f"  Macro V4 → Regime: {regime} | Liquidity: {liquidity_score:.2f} | DXY Mom: {dxy_momentum:.3f} | Multiplier: {macro_multiplier[regime]:.2f}")
+        print(f"  Macro V6 → Regime: {regime} (score {regime_score:.2f}) | Liquidity Δ: {liq_change:.3f} | DXY Mom: {dxy_momentum:.3f}")
 
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
@@ -200,7 +229,6 @@ def run_pipeline():
                 continue
 
             for option in chain:
-                # ... (Filter-Block identisch mit vorher) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
@@ -266,7 +294,12 @@ def run_pipeline():
                     forecast.get("drift", 0), option.get("option_type", "call")
                 )
 
-                candidate_for_bt = { ... }  # unverändert
+                # Disagreement Layer (echter Alpha-Trigger)
+                implied_move = iv * np.sqrt(dte / 365)
+                expected_move = abs(forecast.get("drift", 0)) * np.sqrt(dte / 365)
+                disagreement = expected_move - implied_move
+
+                candidate_for_bt = { ... }  # wie bisher
 
                 bt = backtester.find_similar_real(candidate_for_bt)
 
@@ -274,13 +307,18 @@ def run_pipeline():
                 ev_normalized = max(min(ev_pct, 100), -100)
                 ev_component = (ev_normalized + 100) / 2
 
-                # Vereinfachter, orthogonalisierter Edge Score (dein Vorschlag)
-                base_es = (0.4 * ev_component +
-                           0.3 * bt.get("win_rate", 0.5) * 100 +
+                # Vereinfachter Edge Score
+                base_es = (0.4 * ev_component + 0.3 * bt.get("win_rate", 0.5) * 100 +
                            0.3 * forecast.get("confidence", 0.5) * 100)
 
-                # Macro als Multiplier (nicht additiv!)
+                # Macro als Multiplier + DXY + Disagreement
                 es = base_es * macro_multiplier[regime]
+                if dxy_momentum > 0.05:
+                    es *= 0.85
+                elif dxy_momentum < -0.05:
+                    es *= 1.10
+                if disagreement > 0.05:   # Forecast > Implied Move = Edge
+                    es *= 1.15
 
                 all_candidates.append({
                     "symbol": contract_symbol,
@@ -310,6 +348,7 @@ def run_pipeline():
                     "mirofish_confidence": "none",
                     "real_options_data": bt.get("real_options_data", False),
                     "regime": regime,
+                    "disagreement": round(disagreement, 3),
                 })
 
             print(f"  Filter stats {ticker}: {filter_stats}")
@@ -327,8 +366,6 @@ def run_pipeline():
         top20 = haiku.select(all_candidates)
         artifact["candidates_post_haiku"] = len(top20)
         print(f"  Haiku selected: {len(top20)} candidates")
-
-        # ... (Stage 6–8 bleiben identisch – Mirofish, Claude, Email)
 
         print("\nStage 6: Mirofish simulation...")
         mirofish = MirofishChecker(cfg)
@@ -348,7 +385,12 @@ def run_pipeline():
 
         print("\nStage 7: Claude Opus final analysis...")
         analyst = ClaudeDeepAnalysis(cfg)
-        context = {"raw_data": raw_data, "segment_scores": segment_scores, "positions": positions, "health": health}
+        context = {
+            "raw_data": raw_data,
+            "segment_scores": segment_scores,
+            "positions": positions,
+            "health": health,
+        }
         recommendation = analyst.analyze(finalists[:8], context)
         artifact["final_recommendation"] = recommendation
         print(f"  Recommendation: {recommendation.get('symbol')} Conviction {recommendation.get('conviction')}/10")
@@ -370,8 +412,15 @@ def run_pipeline():
         print(f"\nPIPELINE ERROR: {e}\n{tb}")
 
     finally:
-        artifact["runtime_seconds"] = round(time.time() - start_time)
+        # Macro-Werte für nächsten Run speichern
+        artifact["m2"] = fred.get("m2", 0)
+        artifact["walcl"] = fred.get("walcl", 0)
+        artifact["real_rate"] = real_rate
+        artifact["m2_growth"] = m2_growth
+        artifact["dxy"] = dxy
         save_last_run(artifact)
+
+        artifact["runtime_seconds"] = round(time.time() - start_time)
         print(f"\nRun complete in {artifact['runtime_seconds']}s — PIPELINE ERFOLGREICH")
         print(f"Errors: {artifact['errors'] or 'none'}")
 
