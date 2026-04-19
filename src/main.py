@@ -1,6 +1,6 @@
 """
 Commodity Options Screener v3.2-final
-Endgültige Version mit sauberem JSON-Fix (bool bleibt bool)
+Phase 1 komplett: Liquidity Score + DXY Trend + verbesserter Haiku-Prompt
 """
 
 import json
@@ -48,10 +48,9 @@ def save_positions(positions):
 
 
 def save_last_run(artifact):
-    """Sauberer JSON-Fix – behandelt NumPy-Typen korrekt"""
     def convert(obj):
         if isinstance(obj, (bool, np.bool_)):
-            return bool(obj)                    # True/False bleibt bool
+            return bool(obj)
         elif isinstance(obj, (int, np.integer)):
             return int(obj)
         elif isinstance(obj, (float, np.floating)):
@@ -70,7 +69,6 @@ def save_last_run(artifact):
             return obj
 
     artifact = convert(artifact)
-
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(artifact, f, indent=2)
 
@@ -93,7 +91,7 @@ def run_pipeline():
     start_time = time.time()
     run_id = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"\n{'='*60}")
-    print(f"Commodity Options Screener v3.2-final — Run {run_id}")
+    print(f"Commodity Options Screener v3.2-final (Phase 1 komplett) — Run {run_id}")
     print(f"{'='*60}\n")
 
     cfg = load_config()
@@ -157,6 +155,20 @@ def run_pipeline():
         print(f"  Qualifying segments: {qualifiers}")
         raw_data["segment_scores"] = segment_scores
 
+        # ── NEU: Liquidity Score + DXY Trend berechnen (Phase 1 Teil 2) ──
+        fred = raw_data.get("fred", {})
+        fed_funds = fred.get("fed_funds_rate", 5.0)
+        cpi = fred.get("cpi", 3.0)
+        m2 = fred.get("m2", 0)
+        walcl = fred.get("walcl", 0)
+        dxy = fred.get("dxy", 100.0)
+
+        real_rate = fed_funds - cpi
+        liquidity_score = (real_rate - 2.0) / 2.0                     # normalisiert
+        dxy_trend = 1 if dxy > 105 else -1                           # einfacher Trend
+
+        print(f"  Macro Context → Real Rate: {real_rate:.1f}% | Liquidity Score: {liquidity_score:.2f} | DXY Trend: {'Strong' if dxy_trend > 0 else 'Weak'}")
+
         print("\nStage 4: Quantitative models + real option history...")
         all_candidates = []
         raw_data["historical_options"] = {}
@@ -196,6 +208,7 @@ def run_pipeline():
                 continue
 
             for option in chain:
+                # ... (Filter-Block bleibt identisch wie bisher) ...
                 oi = option.get("open_interest", 0) or 0
                 volume = option.get("volume", 0) or 0
                 bid = option.get("bid", 0) or 0
