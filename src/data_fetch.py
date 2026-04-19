@@ -1,6 +1,6 @@
 """
 Data Fetcher — alle Datenquellen parallel
-JETZT MIT SUPER-ROBUSTEM COT-PARSER + DEBUG-AUSGABE
+JETZT MIT ULTRA-ROBUSTEM COT-PARSER (CFTC-Format-Änderungen abgefangen)
 """
 
 import os
@@ -41,7 +41,7 @@ class DataFetcher:
             print(f"  Fetch error {url[:60]}: {e}")
             return ""
 
-    # ── Tradier, Finnhub, EIA, FRED, RSS, yfinance ── (unverändert)
+    # ── Tradier ──────────────────────────────────────────────────────
     def fetch_tradier_quote(self, ticker):
         url = "https://api.tradier.com/v1/markets/quotes"
         data = self._get(url, self.headers_tradier, {"symbols": ticker})
@@ -81,6 +81,7 @@ class DataFetcher:
                 return third_fri.strftime("%Y-%m-%d")
         return None
 
+    # ── Finnhub ──────────────────────────────────────────────────────
     def fetch_finnhub_quote(self, ticker):
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_key}"
         return self._get(url)
@@ -109,6 +110,7 @@ class DataFetcher:
             print(f"  yfinance candles error {ticker}: {e}")
             return []
 
+    # ── EIA ──────────────────────────────────────────────────────────
     def fetch_eia(self, series_id):
         url = f"https://api.eia.gov/v2/seriesid/{series_id}"
         data = self._get(url, params={"api_key": self.eia_key, "length": 4})
@@ -122,7 +124,7 @@ class DataFetcher:
             }
         return {"current": 0, "previous": 0, "delta": 0, "as_of": ""}
 
-    # ── COT – NEUE SUPER-ROBUSTE VERSION (mit Debug + Fallback) ─────────────
+    # ── COT – ULTRA-ROBUST VERSION (CFTC-Format-Änderungen abgefangen) ─────────────
     def fetch_cot(self, cot_code):
         if not cot_code:
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_code"}
@@ -135,18 +137,34 @@ class DataFetcher:
             resp.raise_for_status()
             text = resp.text
 
-            reader = csv.DictReader(io.StringIO(text))
-            rows = list(reader)  # alle Zeilen laden
+            # Zeilen aufteilen und leere Zeilen entfernen
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-            print(f"  [COT] Gesamtzeilen im Feed: {len(rows)}")
+            print(f"  [COT] Gesamtzeilen im Feed: {len(lines)}")
 
-            # Suche nach dem Code
+            # Header finden (erste Zeile mit "CFTC_Commodity_Code")
+            header_line = None
+            for i, line in enumerate(lines):
+                if "CFTC_Commodity_Code" in line:
+                    header_line = line
+                    print(f"  [COT] Header gefunden in Zeile {i}")
+                    break
+
+            if not header_line:
+                print("  [COT] ❌ Kein Header mit CFTC_Commodity_Code gefunden!")
+                return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "no_header"}
+
+            # CSV mit korrektem Header parsen
+            reader = csv.DictReader(lines, fieldnames=header_line.split(","))
+            rows = list(reader)[1:]  # erste Zeile (Header) überspringen
+
             matching_rows = [r for r in rows if r.get("CFTC_Commodity_Code", "").strip() == cot_code]
 
             if not matching_rows:
-                print(f"  [COT] ❌ Code {cot_code} NICHT gefunden. Erste 5 Zeilen zur Info:")
+                print(f"  [COT] ❌ Code {cot_code} NICHT gefunden.")
+                print("  Erste 5 Codes im Feed:")
                 for i, r in enumerate(rows[:5]):
-                    code = r.get("CFTC_Commodity_Code", "")
+                    code = r.get("CFTC_Commodity_Code", "").strip()
                     name = r.get("Market_and_Exchange_Name", "")[:60]
                     print(f"     {i+1:2d}. Code={code} | {name}")
                 return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "code_not_found"}
@@ -187,6 +205,7 @@ class DataFetcher:
             print(f"  [COT] ❌ Fetch error {cot_code}: {e}")
             return {"net_commercial": 0, "long": 0, "short": 0, "as_of": "error"}
 
+    # ── FRED ─────────────────────────────────────────────────────────
     def fetch_fred(self):
         results = {}
         series = {
@@ -216,6 +235,7 @@ class DataFetcher:
                 results[name] = 0.0
         return results
 
+    # ── RSS & yfinance ───────────────────────────────────────────────
     def fetch_rss(self, query):
         url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl=en-US&gl=US&ceid=US:en"
         return self._get_text(url)
