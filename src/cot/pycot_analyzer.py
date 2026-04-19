@@ -1,5 +1,5 @@
 """
-PyCOT Analyzer v5.4 – exakt an die Spaltennamen aus dem aktuellen Log angepasst
+PyCOT Analyzer v5.4 – exakt auf die Spaltennamen aus deinem Log angepasst
 """
 
 import cot_reports as cot
@@ -9,7 +9,7 @@ import datetime
 class PyCOTAnalyzer:
     def __init__(self):
         self.current_year = datetime.datetime.now().year
-        print("  ✅ PyCOT Analyzer v5.4 geladen (exakte Spalten-Mapping aus Log)")
+        print("  ✅ PyCOT Analyzer v5.4 geladen (exakte Spalten-Mapping)")
 
     def get_cot_data(self, ticker: str):
         try:
@@ -30,7 +30,6 @@ class PyCOTAnalyzer:
 
             df = cot.cot_year(self.current_year, cot_report_type="legacy_fut")
             print(f"  [COT] Downloaded {len(df)} rows for {ticker}")
-            print(f"  [COT] Verfügbare Spalten: {list(df.columns)}")
 
             # Exakte Spalten aus deinem Log
             market_col = 'Market and Exchange Names'
@@ -42,23 +41,27 @@ class PyCOTAnalyzer:
                 return self._default_response()
 
             # Numerische Konvertierung
-            for col_name in ['Commercial Positions-Long (All)', 'Commercial Positions-Short (All)', 'Open Interest (All)']:
-                if col_name in market_data.columns:
-                    market_data[col_name] = pd.to_numeric(market_data[col_name], errors='coerce').fillna(0)
+            long_col = 'Commercial Positions-Long (All)'
+            short_col = 'Commercial Positions-Short (All)'
+            oi_col = 'Open Interest (All)'
+
+            for col in [long_col, short_col, oi_col]:
+                if col in market_data.columns:
+                    market_data[col] = pd.to_numeric(market_data[col], errors='coerce').fillna(0)
 
             latest = market_data.sort_values(date_col, ascending=False).iloc[0]
 
-            long_com = latest.get('Commercial Positions-Long (All)', 0)
-            short_com = latest.get('Commercial Positions-Short (All)', 0)
+            long_com = latest.get(long_col, 0)
+            short_com = latest.get(short_col, 0)
             net_com = long_com - short_com
-            total_oi = latest.get('Open Interest (All)', 1) or 1
+            total_oi = latest.get(oi_col, 1) or 1
 
             momentum = (latest.get('Change in Commercial Long (All)', 0) - latest.get('Change in Commercial Short (All)', 0)) / 1000.0
 
             commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
 
             # Z-Score
-            hist_net = market_data['Commercial Positions-Long (All)'] - market_data['Commercial Positions-Short (All)']
+            hist_net = market_data[long_col] - market_data[short_col]
             z_score = 0.0
             if len(hist_net) > 5 and hist_net.std() > 0:
                 z_score = (net_com - hist_net.mean()) / hist_net.std()
