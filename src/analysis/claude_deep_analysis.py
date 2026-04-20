@@ -1,9 +1,5 @@
 """
-Claude Opus Final Analysis – Verbesserte Version mit robustem Parser
-- Verwendet claude-3-5-sonnet-20241022 (stabil & günstig)
-- Strenger Filter auf realistische Optionen
-- Robuster Parser für "KEIN TRADE EMPFOHLEN"
-- Automatische Conviction-Reduktion bei kleiner Historie
+Claude Deep Analysis – Stable Version (Claude Sonnet 4.6)
 """
 
 import os
@@ -87,7 +83,7 @@ Mindest-Conviction fuer Trades: 6/10
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-6",          # ← Aktuelles stabiles Modell
                 max_tokens=1200,
                 temperature=0.0,
                 messages=[{"role": "user", "content": prompt}],
@@ -96,7 +92,7 @@ Mindest-Conviction fuer Trades: 6/10
             return self._parse_recommendation(text, top)
 
         except Exception as e:
-            print(f" Claude Opus error: {e}")
+            print(f" Claude error: {e}")
             return self._no_trade_fallback()
 
     def _no_trade_fallback(self):
@@ -119,7 +115,6 @@ Mindest-Conviction fuer Trades: 6/10
         }
 
     def _parse_recommendation(self, text, top_candidate):
-        # Robuster Parser mit "KEIN TRADE" Erkennung
         if "KEIN TRADE" in text.upper() or "NO TRADE" in text.upper():
             return self._no_trade_fallback()
 
