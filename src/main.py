@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — Gewinnorientierte Version + Laufzeit-Optimierung
+Commodity Options Screener v3.2-final — Gewinnorientierte Version + Verbessertes Stage 4
 """
 
 import datetime
@@ -22,9 +22,9 @@ from email_sender import EmailSender
 LAST_RUN_PATH = "data/last_run.json"
 
 # ==================== GEWINNORIENTIERTE SCHWELLEN ====================
-EDGE_BASE_SCORE = 38.0          # Bei zu vielen Trades → auf 40–42 erhöhen
-SLIPPAGE_FACTOR = 0.97          # 3% Abzug für Spread + Execution
-MAX_CANDIDATES_PER_SEGMENT = 50 # Laufzeit-Optimierung
+EDGE_BASE_SCORE = 38.0
+SLIPPAGE_FACTOR = 0.97
+MAX_CANDIDATES_PER_SEGMENT = 60   # erhöht, damit mehr Optionen geprüft werden
 
 
 def load_last_run():
@@ -100,11 +100,11 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # Stage 4 – Gewinnorientiert + Laufzeit-optimiert
+        # Stage 4 – Verbesserte Version mit mehr Debug
         print("Stage 4: Quantitative models + real option history + PyCOT v5.6...")
         backtester = BacktestPandas()
         all_candidates = []
-        historical_cache = {}   # Cache gegen doppelte yfinance-Calls
+        historical_cache = {}
 
         for seg in qualifying_segments:
             ticker = cfg.get("watchlist", {}).get(seg, {}).get("tickers", [None])[0]
@@ -115,16 +115,22 @@ def run_pipeline():
                 print(f"  WARNING: No valid spot price for {ticker}")
                 continue
 
-            print(f"  [{seg}] {ticker} | Spot ${spot:.2f}")
+            print(f"  [{seg}] {ticker} | Spot ${spot:.2f} | Processing up to {MAX_CANDIDATES_PER_SEGMENT} options")
 
             cot_data = raw_data.get("cot", {}).get(ticker, {})
             strength = cot_data.get("strength_score", 1.0)
             print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | OI-Ratio={cot_data.get('commercial_oi_ratio')}% | x{strength}")
 
             chains = raw_data.get("options_chains", {}).get(ticker, [])
+            processed = 0
+
             for opt in chains[:MAX_CANDIDATES_PER_SEGMENT]:
+                processed += 1
                 try:
                     symbol = opt.get("symbol", "")
+                    if not symbol:
+                        continue
+
                     if symbol in historical_cache:
                         hist_data = historical_cache[symbol]
                     else:
@@ -132,17 +138,7 @@ def run_pipeline():
                         historical_cache[symbol] = hist_data
 
                     strike = float(opt.get("strike", 0))
-
-                    # Dynamic Extraction
-                    if "expiration_date" in opt:
-                        exp_date = datetime.datetime.strptime(opt["expiration_date"], "%Y-%m-%d")
-                        dte = (exp_date - datetime.datetime.now(datetime.timezone.utc)).days
-                    else:
-                        dte = opt.get("days_to_expiration", 30)
-
-                    delta = float(opt.get("delta", 0.35))
-                    mid_price = float(opt.get("last", 0)) or (float(opt.get("bid", 0)) + float(opt.get("ask", 0))) / 2
-
+                    dte = opt.get("days_to_expiration", 30)
                     expiry_date = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=dte)).strftime("%Y-%m-%d")
 
                     candidate = {
@@ -155,8 +151,8 @@ def run_pipeline():
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
                         "option_type": opt.get("option_type", "call"),
-                        "delta": delta,
-                        "mid_price": mid_price,
+                        "delta": float(opt.get("delta", 0.35)),
+                        "mid_price": float(opt.get("last", 0)) or 0.0,
                         "fair_value_bs": 0.0,
                         "oi": int(opt.get("open_interest", 0)) or 0,
                         "iv_pct": 0.0,
@@ -175,8 +171,11 @@ def run_pipeline():
                     candidate["hist_sample_size"] = bt.get("n", 0)
 
                     all_candidates.append(candidate)
-                except:
+
+                except Exception as e:
                     continue
+
+            print(f"  Processed {processed} options for {ticker} → added {len([c for c in all_candidates if c['ticker'] == ticker])} candidates")
 
         print(f"  Total candidates after filter: {len(all_candidates)}")
 
@@ -215,7 +214,6 @@ def run_pipeline():
             {"open_positions": []}
         )
 
-        # WICHTIG: Kein artifact mehr → kein JSON-Anhang in Gmail
         email_sender.send(card, recommendation)
 
         artifact["recommendation"] = recommendation
