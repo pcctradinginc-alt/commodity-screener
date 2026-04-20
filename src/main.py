@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.2-final — PyCOT v5.6 + Full cfg Safety + Final HTML-Fix
+Commodity Options Screener v3.2-final — Gewinnorientierte Version + Laufzeit-Optimierung
 """
 
 import datetime
@@ -20,6 +20,11 @@ from email_sender import EmailSender
 
 
 LAST_RUN_PATH = "data/last_run.json"
+
+# ==================== GEWINNORIENTIERTE SCHWELLEN ====================
+EDGE_BASE_SCORE = 38.0          # Bei zu vielen Trades → auf 40–42 erhöhen
+SLIPPAGE_FACTOR = 0.97          # 3% Abzug für Spread + Execution
+MAX_CANDIDATES_PER_SEGMENT = 50 # ← WICHTIG: Laufzeit-Optimierung (vorher 80)
 
 
 def load_last_run():
@@ -60,8 +65,8 @@ def run_pipeline():
 
     try:
         print("=============================================================")
-        print("Commodity Options Screener v3.2-final (PyCOT v5.6 + Full cfg Safety)")
-        print(f"Run {datetime.datetime.utcnow().isoformat() + 'Z'}")
+        print("Commodity Options Screener v3.2-final (Gewinnorientierte + Laufzeit-optimiert)")
+        print(f"Run {datetime.datetime.now(datetime.timezone.utc).isoformat() + 'Z'}")
         print("=============================================================")
 
         if os.path.exists("config.yaml"):
@@ -95,10 +100,11 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # Stage 4
+        # Stage 4 – Optimierte Version mit Laufzeit-Limit
         print("Stage 4: Quantitative models + real option history + PyCOT v5.6...")
         backtester = BacktestPandas()
         all_candidates = []
+        historical_cache = {}  # einfacher Cache, um doppelte yfinance-Calls zu vermeiden
 
         for seg in qualifying_segments:
             ticker = cfg.get("watchlist", {}).get(seg, {}).get("tickers", [None])[0]
@@ -116,14 +122,21 @@ def run_pipeline():
             print(f"  [COT] {ticker}: {cot_data.get('signal_strength')} | OI-Ratio={cot_data.get('commercial_oi_ratio')}% | x{strength}")
 
             chains = raw_data.get("options_chains", {}).get(ticker, [])
-            for opt in chains[:50]:
+            for opt in chains[:MAX_CANDIDATES_PER_SEGMENT]:
                 try:
+                    symbol = opt.get("symbol", "")
+                    if symbol in historical_cache:
+                        hist_data = historical_cache[symbol]
+                    else:
+                        hist_data = fetcher.fetch_historical_option(symbol)
+                        historical_cache[symbol] = hist_data
+
                     strike = float(opt.get("strike", 0))
-                    dte = 30
-                    expiry_date = (datetime.datetime.utcnow() + datetime.timedelta(days=dte)).strftime("%Y-%m-%d")
+                    dte = opt.get("days_to_expiration", 30)
+                    expiry_date = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=dte)).strftime("%Y-%m-%d")
 
                     candidate = {
-                        "symbol": opt.get("symbol", ""),
+                        "symbol": symbol,
                         "segment": seg,
                         "ticker": ticker,
                         "strike": strike,
@@ -132,7 +145,7 @@ def run_pipeline():
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
                         "option_type": opt.get("option_type", "call"),
-                        "delta": 0.40,
+                        "delta": float(opt.get("delta", 0.35)),
                         "mid_price": float(opt.get("last", 0)) or 0.0,
                         "fair_value_bs": 0.0,
                         "oi": int(opt.get("open_interest", 0)) or 0,
@@ -142,8 +155,8 @@ def run_pipeline():
                         "hist_win_rate": 0.48,
                         "hist_sample_size": 0,
                         "mirofish_score": 30,
-                        "edge_score": 45.0 * strength,
-                        "historical_data": fetcher.fetch_historical_option(opt.get("symbol", "")),
+                        "edge_score": EDGE_BASE_SCORE * strength * SLIPPAGE_FACTOR,
+                        "historical_data": hist_data,
                     }
 
                     bt = backtester.find_similar_real(candidate)
@@ -162,17 +175,15 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # Stage 5
+        # Stage 5–8 bleiben unverändert
         print("Stage 5: Haiku preselection...")
         haiku = HaikuPreselect(cfg)
         top20 = haiku.select(all_candidates, segment_scores)
 
-        # Stage 6
         print("Stage 6: Mirofish simulation...")
         miro = MirofishChecker(cfg)
         passed = miro.run(top20)
 
-        # Stage 7
         print("Stage 7: Claude Opus final analysis...")
         claude = ClaudeDeepAnalysis(cfg)
         recommendation = claude.analyze(
@@ -180,12 +191,9 @@ def run_pipeline():
             context=segment_scores
         )
 
-        # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
         html_gen = HTMLCardGenerator(cfg)
         email_sender = EmailSender(cfg)
-
-        # KORRIGIERTER AUFRUF mit allen benötigten Argumenten
         card = html_gen.generate(
             recommendation,
             segment_scores,
