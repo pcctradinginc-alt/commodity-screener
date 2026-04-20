@@ -24,7 +24,7 @@ LAST_RUN_PATH = "data/last_run.json"
 # ==================== GEWINNORIENTIERTE SCHWELLEN ====================
 EDGE_BASE_SCORE = 38.0          # Bei zu vielen Trades → auf 40–42 erhöhen
 SLIPPAGE_FACTOR = 0.97          # 3% Abzug für Spread + Execution
-MAX_CANDIDATES_PER_SEGMENT = 50 # ← WICHTIG: Laufzeit-Optimierung (vorher 80)
+MAX_CANDIDATES_PER_SEGMENT = 50 # Laufzeit-Optimierung
 
 
 def load_last_run():
@@ -65,7 +65,7 @@ def run_pipeline():
 
     try:
         print("=============================================================")
-        print("Commodity Options Screener v3.2-final (Gewinnorientierte + Laufzeit-optimiert)")
+        print("Commodity Options Screener v3.2-final (Gewinnorientierte Version)")
         print(f"Run {datetime.datetime.now(datetime.timezone.utc).isoformat() + 'Z'}")
         print("=============================================================")
 
@@ -100,11 +100,11 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # Stage 4 – Optimierte Version mit Laufzeit-Limit
+        # Stage 4 – Gewinnorientiert + Laufzeit-optimiert
         print("Stage 4: Quantitative models + real option history + PyCOT v5.6...")
         backtester = BacktestPandas()
         all_candidates = []
-        historical_cache = {}  # einfacher Cache, um doppelte yfinance-Calls zu vermeiden
+        historical_cache = {}   # Cache gegen doppelte yfinance-Calls
 
         for seg in qualifying_segments:
             ticker = cfg.get("watchlist", {}).get(seg, {}).get("tickers", [None])[0]
@@ -132,7 +132,17 @@ def run_pipeline():
                         historical_cache[symbol] = hist_data
 
                     strike = float(opt.get("strike", 0))
-                    dte = opt.get("days_to_expiration", 30)
+
+                    # Dynamic Extraction
+                    if "expiration_date" in opt:
+                        exp_date = datetime.datetime.strptime(opt["expiration_date"], "%Y-%m-%d")
+                        dte = (exp_date - datetime.datetime.now(datetime.timezone.utc)).days
+                    else:
+                        dte = opt.get("days_to_expiration", 30)
+
+                    delta = float(opt.get("delta", 0.35))
+                    mid_price = float(opt.get("last", 0)) or (float(opt.get("bid", 0)) + float(opt.get("ask", 0))) / 2
+
                     expiry_date = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=dte)).strftime("%Y-%m-%d")
 
                     candidate = {
@@ -145,8 +155,8 @@ def run_pipeline():
                         "spot": spot,
                         "type": opt.get("option_type", "call"),
                         "option_type": opt.get("option_type", "call"),
-                        "delta": float(opt.get("delta", 0.35)),
-                        "mid_price": float(opt.get("last", 0)) or 0.0,
+                        "delta": delta,
+                        "mid_price": mid_price,
                         "fair_value_bs": 0.0,
                         "oi": int(opt.get("open_interest", 0)) or 0,
                         "iv_pct": 0.0,
@@ -175,15 +185,17 @@ def run_pipeline():
             save_last_run(artifact)
             return True
 
-        # Stage 5–8 bleiben unverändert
+        # Stage 5
         print("Stage 5: Haiku preselection...")
         haiku = HaikuPreselect(cfg)
         top20 = haiku.select(all_candidates, segment_scores)
 
+        # Stage 6
         print("Stage 6: Mirofish simulation...")
         miro = MirofishChecker(cfg)
         passed = miro.run(top20)
 
+        # Stage 7
         print("Stage 7: Claude Opus final analysis...")
         claude = ClaudeDeepAnalysis(cfg)
         recommendation = claude.analyze(
@@ -191,16 +203,20 @@ def run_pipeline():
             context=segment_scores
         )
 
+        # Stage 8
         print("Stage 8: Generating HTML card and sending email...")
         html_gen = HTMLCardGenerator(cfg)
         email_sender = EmailSender(cfg)
+
         card = html_gen.generate(
             recommendation,
             segment_scores,
             {"score": health_score},
             {"open_positions": []}
         )
-        email_sender.send(card, recommendation, artifact)
+
+        # WICHTIG: Kein artifact mehr → kein JSON-Anhang in Gmail
+        email_sender.send(card, recommendation)
 
         artifact["recommendation"] = recommendation
 
