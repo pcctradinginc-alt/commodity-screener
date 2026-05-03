@@ -1,21 +1,4 @@
 {
   "errors": [],
-  "runtime_seconds": 32,
-  "recommendation": {
-    "symbol": "NO TRADE",
-    "strike": 0,
-    "expiry": "",
-    "type": "",
-    "mid_price": 0,
-    "fair_value_bs": 0,
-    "conviction": 0,
-    "max_loss": 0,
-    "mc_expected_value": 0,
-    "historical_win_rate": 0,
-    "sample_size": 0,
-    "these": "Keine ausreichend gute Setup gefunden",
-    "invalidierung": "\u2014",
-    "news_context": "\u2014",
-    "raw_text": "NO TRADE FALLBACK"
-  }
+  "runtime_seconds": 11
 }
