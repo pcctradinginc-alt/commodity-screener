@@ -74,10 +74,23 @@ def compute_eia_impact(raw_data: dict, seg: str) -> tuple:
     impact = 1.0
     eia_score = 0.0
 
-    for series_info in eia_data.values():
+    for series_id, series_info in eia_data.items():
         z     = series_info.get("z_score", 0)
         delta = series_info.get("delta", 0)
         sig   = series_info.get("signal", "NEUTRAL")
+
+        # NG storage: tighter thresholds, larger impact (primary Aschenbrenner signal)
+        if "NW2_EPG0_SWO_R48_BCF" in series_id:
+            if z < -1.2:
+                impact    = max(impact, 1.75)
+                eia_score += 1.6
+            elif z < -0.6:
+                impact    = max(impact, 1.35)
+                eia_score += 0.8
+            elif z > 1.2:
+                impact    = min(impact, 0.5)
+                eia_score -= 1.2
+            continue  # skip generic signal branch for this series
 
         if sig == "STRONG_BULLISH":
             impact    = max(impact, 1.8)
@@ -190,6 +203,37 @@ def compute_macro_multiplier(raw_data: dict, seg: str, opt_type: str) -> float:
         multiplier *= 0.92   # high real rates = gold/silver headwind
 
     return round(max(0.70, min(multiplier, 1.35)), 3)
+
+
+def compute_uranium_proxy_signal(yf_data: dict) -> tuple:
+    """
+    Sprott Physical Uranium Trust (SRUUF) momentum as uranium spot proxy.
+    Returns (impact_multiplier, eia_score) with same semantics as compute_eia_impact().
+    Signal: 5-day close vs 20-day MA normalized by 20-day std.
+    """
+    history = yf_data.get("SRUUF", [])
+    closes = [r["Close"] for r in history if r.get("Close", 0) > 0]
+    if len(closes) < 21:
+        return 1.0, 0.0
+
+    recent5  = np.mean(closes[-5:])
+    ma20     = np.mean(closes[-20:])
+    std20    = np.std(closes[-20:])
+    if std20 == 0:
+        return 1.0, 0.0
+
+    z = (recent5 - ma20) / std20
+
+    if z > 1.5:
+        return 1.6, 0.8    # strong uranium spot rally → bullish URA/URNM
+    elif z > 0.7:
+        return 1.3, 0.4
+    elif z < -1.5:
+        return 0.6, -0.8   # uranium spot weakness → headwind
+    elif z < -0.7:
+        return 0.8, -0.4
+    else:
+        return 1.0, 0.0
 
 
 def compute_hv(yf_data, ticker, window=20):
@@ -305,6 +349,13 @@ def run_pipeline():
 
             # EIA impact: multiplier for cot_component + additive score for MC drift
             eia_impact, eia_score = compute_eia_impact(raw_data, seg)
+
+            # Nuclear: no EIA series → substitute with SRUUF uranium spot momentum
+            if seg == "nuclear":
+                u_impact, u_score = compute_uranium_proxy_signal(yf_data)
+                eia_impact = u_impact
+                eia_score  = u_score
+                print(f"  [nuclear] SRUUF proxy → impact={u_impact:.2f}x score={u_score:+.2f}")
 
             # Prophet drift — mix EIA directional score into drift (80/20 blend)
             prophet_result = prophet.forecast(ticker)
