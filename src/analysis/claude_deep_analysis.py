@@ -80,8 +80,10 @@ class ClaudeDeepAnalysis:
             "hist_win_rate":    c.get("hist_win_rate", 0.48),
             "hist_sample_size": c.get("hist_sample_size", 0),
             "cot_strength":     c.get("cot_strength", 1.0),
-            "macro_multiplier": c.get("macro_multiplier", 1.0),
-            "prophet_direction": c.get("prophet_direction", "neutral"),
+            "macro_multiplier":     c.get("macro_multiplier", 1.0),
+            "prophet_direction":    c.get("prophet_direction", "neutral"),
+            "aschenbrenner_bias":   c.get("aschenbrenner_bias", 0),
+            "call_skew_ratio":      c.get("call_skew_ratio", 1.0),
         } for c in finalists[:6]], indent=2)
 
         today = datetime.date.today().isoformat()
@@ -105,6 +107,7 @@ COT: {cot_summary}
 EIA: {eia_summary}
 FRED/MAKRO: {fred_summary}
 MACRO-MULTIPLIER: {top.get('macro_multiplier', 1.0):.2f} (>1 = Tailwind, <1 = Headwind)
+AI-INFRA BIAS: +{top.get('aschenbrenner_bias', 0):.1f} Punkte | Call-Skew: {top.get('call_skew_ratio', 1.0):.3f}
 
 KANDIDATEN (sortiert nach Edge-Score):
 {candidates_str}
