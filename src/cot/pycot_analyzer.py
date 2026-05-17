@@ -130,8 +130,8 @@ class PyCOTAnalyzer:
             mom_short = float(latest.get(chg_short, 0) if chg_short else 0)
             momentum  = (mom_long - mom_short) / 1000.0
 
-            # Commercial OI ratio
-            commercial_oi_ratio = (net_com / total_oi) * 100 if net_com > 0 else 0.0
+            # Commercial OI ratio (signed: negative = net short = hedgers dominant)
+            commercial_oi_ratio = (net_com / total_oi) * 100
 
             # Z-score over full history (up to 3 years)
             if long_col and short_col:
@@ -149,19 +149,19 @@ class PyCOTAnalyzer:
             else:
                 cot_index = 50.0 + z_score * 15
 
-            # Signal logic — thresholds calibrated for real commodity setups
-            # (z>1.8 almost never triggers in practice; z>1.3 is the realistic extreme)
-            if commercial_oi_ratio > 25 and z_score > 1.5 and momentum > 30:
+            # Signal logic — z_score is primary gate; OI-Ratio too unstable across markets
+            # (crude oil OI is enormous → ratios always tiny; gold OI smaller → ratios larger)
+            if z_score > 1.5 and momentum > 20:
                 signal, strength_score = "Strong Bullish", 2.5
-            elif commercial_oi_ratio > 18 and z_score > 1.0:
+            elif z_score > 1.0:
                 signal, strength_score = "Bullish", 1.8
-            elif commercial_oi_ratio > 10 and z_score > 0.4:
+            elif z_score > 0.4:
                 signal, strength_score = "Mild Bullish", 1.3
-            elif commercial_oi_ratio < -25 and z_score < -1.5 and momentum < -30:
+            elif z_score < -1.5 and momentum < -20:
                 signal, strength_score = "Strong Bearish", 0.3
-            elif commercial_oi_ratio < -18 and z_score < -1.0:
+            elif z_score < -1.0:
                 signal, strength_score = "Bearish", 0.6
-            elif commercial_oi_ratio < -10 and z_score < -0.4:
+            elif z_score < -0.4:
                 signal, strength_score = "Mild Bearish", 0.8
             else:
                 signal, strength_score = "Neutral", 1.0
