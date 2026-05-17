@@ -2,7 +2,7 @@ watchlist:
   energy:
     tickers: [USO, XLE, UNG]
     rss_query: "crude oil WTI Brent OPEC natural gas"
-    eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W"]
+    eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W", "NW2_EPG0_SWO_R48_BCF.W"]
     cot_code: "067411"
     smile_factor: 0.18
   agri:
@@ -16,7 +16,7 @@ watchlist:
     cot_code: "088691"
     smile_factor: 0.12
   nuclear:
-    tickers: [URA, URNM]
+    tickers: [URA, URNM, SRUUF]   # SRUUF = Sprott Physical Uranium Trust (spot proxy, no options)
     rss_query: "uranium nuclear power AI datacenter baseload SMR reactor enrichment"
     eia_series: []
     cot_code: ""
