@@ -226,7 +226,7 @@ class DataFetcher:
                 try:
                     url = (
                         f"https://api.eia.gov/v2/seriesid/{series_id}"
-                        f"?api_key={api_key}&length=12"
+                        f"?api_key={api_key}&length=26"
                     )
                     r = self.session.get(url, timeout=12)
                     if r.status_code != 200:
