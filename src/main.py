@@ -43,11 +43,21 @@ def save_last_run(artifact):
     def convert(obj):
         if isinstance(obj, (pd.Timestamp, datetime.datetime, datetime.date)):
             return obj.isoformat()
-        if isinstance(obj, (bool,)):
+        # numpy scalars must come before Python builtins — np.bool_ is not a subclass
+        # of Python bool since numpy 1.24, but IS a subclass of np.integer/np.floating
+        if isinstance(obj, np.bool_):
             return bool(obj)
-        if isinstance(obj, (int,)):
+        if isinstance(obj, np.integer):
             return int(obj)
-        if isinstance(obj, (float,)):
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, bool):
+            return bool(obj)
+        if isinstance(obj, int):
+            return int(obj)
+        if isinstance(obj, float):
             return float(obj)
         if isinstance(obj, dict):
             return {k: convert(v) for k, v in obj.items()}
