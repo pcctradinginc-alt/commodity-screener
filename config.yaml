@@ -15,6 +15,12 @@ watchlist:
     rss_query: "gold silver copper LME Fed interest rate metals"
     cot_code: "088691"
     smile_factor: 0.12
+  nuclear:
+    tickers: [URA, URNM]
+    rss_query: "uranium nuclear power AI datacenter baseload SMR reactor enrichment"
+    eia_series: []
+    cot_code: ""
+    smile_factor: 0.25
 
 keywords:
   energy:
@@ -26,6 +32,13 @@ keywords:
   metals:
     high:   ["Fed pivot", "rate cut", "inflation surge", "China stimulus", "mine strike", "supply disruption", "safe haven", "dollar crash"]
     medium: [gold, silver, copper, LME, "interest rate", "real yield", "central bank buying", "industrial demand", "inventory"]
+
+aschenbrenner:
+  enabled: true
+  bias_max_points: 8.0          # additive max. +8 Punkte auf edge_score
+  required_signals: 2           # mindestens 2 von 4 unabhängigen Signalen
+  iv_premium_threshold: 0.12    # market_iv / HV - 1 > 12%
+  focus_tickers: [UNG, USO, XLE, COPX, SLV, URA, URNM]
 
 thresholds:
   data_health_min: 55
