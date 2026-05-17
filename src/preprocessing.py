@@ -74,8 +74,8 @@ class DataHealthChecker:
         }
         optional = {
             "yfinance": bool(raw_data.get("yfinance")),
-            "candles": bool(raw_data.get("candles")),
-            "historical_options": bool(raw_data.get("historical_options")),
+            "tradier_quotes": bool(raw_data.get("tradier_quotes")),
+            "fred": bool(raw_data.get("fred")),
         }
 
         print("Critical sources:")
