@@ -61,6 +61,40 @@ def save_last_run(artifact):
         json.dump(convert(artifact), f, indent=2)
 
 
+def compute_eia_impact(raw_data: dict, seg: str) -> tuple:
+    """
+    Returns (impact_multiplier, eia_score) from enhanced EIA data.
+    impact_multiplier: applied to cot_component (0.4–1.8)
+    eia_score: mixed into MC drift (-1.0 to +1.0)
+    """
+    eia_data = raw_data.get("eia", {}).get(seg, {})
+    if not eia_data:
+        return 1.0, 0.0
+
+    impact = 1.0
+    eia_score = 0.0
+
+    for series_info in eia_data.values():
+        z     = series_info.get("z_score", 0)
+        delta = series_info.get("delta", 0)
+        sig   = series_info.get("signal", "NEUTRAL")
+
+        if sig == "STRONG_BULLISH":
+            impact    = max(impact, 1.8)
+            eia_score += 1.0
+        elif sig == "BULLISH":
+            impact    = max(impact, 1.4)
+            eia_score += 0.5
+        elif sig == "STRONG_BEARISH":
+            impact    = min(impact, 0.4)
+            eia_score -= 1.0
+        elif sig == "BEARISH":
+            impact    = min(impact, 0.7)
+            eia_score -= 0.5
+
+    return round(impact, 2), round(max(-1.0, min(eia_score, 1.0)), 2)
+
+
 def compute_macro_multiplier(raw_data: dict, seg: str, opt_type: str) -> float:
     """
     Returns a multiplier (0.70–1.35) based on EIA inventory shocks and FRED macro regime.
@@ -201,15 +235,24 @@ def run_pipeline():
             hv = compute_hv(yf_data, ticker, window=20)
             smile_factor = seg_cfg.get("smile_factor", 0.15)
 
-            # Prophet drift — keyed by ticker (not segment) in yfinance data
-            prophet_result = prophet.forecast(ticker)
-            drift    = prophet_result.get("drift", 0.0)
-            prop_dir = prophet_result.get("direction", "neutral")
 
-            cot_data   = raw_data.get("cot", {}).get(ticker, {})
+            cot_data     = raw_data.get("cot", {}).get(ticker, {})
             cot_strength = cot_data.get("strength_score", 1.0)
-            cot_z      = cot_data.get("z_score", 0.0)
-            print(f"  [{seg}] {ticker} | Spot ${spot:.2f} | HV={hv:.1%} | COT={cot_data.get('signal_strength')} z={cot_z:.2f} | Prophet={prop_dir}")
+            cot_z        = cot_data.get("z_score", 0.0)
+
+            # EIA impact: multiplier for cot_component + additive score for MC drift
+            eia_impact, eia_score = compute_eia_impact(raw_data, seg)
+
+            # Prophet drift — mix EIA directional score into drift (80/20 blend)
+            prophet_result = prophet.forecast(ticker)
+            base_drift = prophet_result.get("drift", 0.0)
+            drift      = base_drift * 0.8 + eia_score * 0.05   # EIA adds up to ±0.05 drift
+            prop_dir   = prophet_result.get("direction", "neutral")
+
+            print(f"  [{seg}] {ticker} | Spot ${spot:.2f} | HV={hv:.1%} | "
+                  f"COT={cot_data.get('signal_strength')} z={cot_z:.2f} | "
+                  f"EIA={eia_impact:.2f}x score={eia_score:+.2f} | "
+                  f"Prophet={prop_dir} drift={drift:+.4f}")
 
             chains = raw_data.get("options_chains", {}).get(ticker, [])
             accepted = 0
@@ -285,8 +328,9 @@ def run_pipeline():
                     })
 
                     # --- Combined edge score + EIA/FRED macro multiplier ---
+                    # eia_impact scales cot_component (strong draw → up to 1.8x boost)
                     # cot_z adds continuous signal on top of discrete cot_strength levels
-                    cot_component  = cot_strength * 20 + (cot_z * 8)   # z=1.5 → +12 pts
+                    cot_component  = (cot_strength * 20 + cot_z * 8) * eia_impact
                     bs_component   = max(0.0, bs_edge * 100)    # 0 if overvalued
                     mc_component   = max(0.0, mc_ev / 5.0)
                     hist_component = bt.get("win_rate", 0.48) * 20
