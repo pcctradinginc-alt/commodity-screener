@@ -95,6 +95,27 @@ def compute_eia_impact(raw_data: dict, seg: str) -> tuple:
     return round(impact, 2), round(max(-1.0, min(eia_score, 1.0)), 2)
 
 
+def compute_segment_skew(chains: list) -> float:
+    """
+    OTM call IV / OTM put IV ratio for a segment's options chain.
+    >1.0 = market paying more for calls (right-tail / supply-shock demand).
+    Returns 1.0 (neutral) when chain is empty or data insufficient.
+    """
+    call_ivs, put_ivs = [], []
+    for opt in chains:
+        iv    = float(opt.get("implied_volatility", 0) or 0)
+        delta = abs(float(opt.get("delta", 0) or 0))
+        otype = opt.get("option_type", "")
+        if 0.15 <= delta <= 0.40 and iv > 0:
+            if otype == "call":
+                call_ivs.append(iv)
+            else:
+                put_ivs.append(iv)
+    if call_ivs and put_ivs:
+        return round((sum(call_ivs) / len(call_ivs)) / (sum(put_ivs) / len(put_ivs)), 3)
+    return 1.0
+
+
 def compute_macro_multiplier(raw_data: dict, seg: str, opt_type: str) -> float:
     """
     Returns a multiplier (0.70–1.35) based on EIA inventory shocks and FRED macro regime.
@@ -249,12 +270,15 @@ def run_pipeline():
             drift      = base_drift * 0.8 + eia_score * 0.05   # EIA adds up to ±0.05 drift
             prop_dir   = prophet_result.get("direction", "neutral")
 
+            # Call-Skew: OTM call IV / OTM put IV (right-tail demand indicator)
+            chains = raw_data.get("options_chains", {}).get(ticker, [])
+            call_skew_ratio = compute_segment_skew(chains)
+
             print(f"  [{seg}] {ticker} | Spot ${spot:.2f} | HV={hv:.1%} | "
                   f"COT={cot_data.get('signal_strength')} z={cot_z:.2f} | "
-                  f"EIA={eia_impact:.2f}x score={eia_score:+.2f} | "
+                  f"EIA={eia_impact:.2f}x | Skew={call_skew_ratio:.3f} | "
                   f"Prophet={prop_dir} drift={drift:+.4f}")
 
-            chains = raw_data.get("options_chains", {}).get(ticker, [])
             accepted = 0
 
             for opt in chains[:MAX_CANDIDATES_PER_SEGMENT]:
@@ -327,22 +351,34 @@ def run_pipeline():
                         "underlying_history": underlying_history,
                     })
 
-                    # --- Combined edge score + EIA/FRED macro multiplier ---
-                    # eia_impact scales cot_component (strong draw → up to 1.8x boost)
-                    # cot_z adds continuous signal on top of discrete cot_strength levels
+                    # --- Combined edge score ---
                     cot_component  = (cot_strength * 20 + cot_z * 8) * eia_impact
-                    bs_component   = max(0.0, bs_edge * 100)    # 0 if overvalued
+                    bs_component   = max(0.0, bs_edge * 100)
                     mc_component   = max(0.0, mc_ev / 5.0)
                     hist_component = bt.get("win_rate", 0.48) * 20
 
+                    # IV-Premium: market paying above HV = expects big move (good for long)
+                    iv_premium     = max(0.0, market_iv / hv - 1.0) if hv > 0 else 0.0
+                    iv_prem_pts    = min(iv_premium * 40, 20.0)   # cap at 20 pts
+
+                    # Call-skew contribution: >1.0 = right-tail demand
+                    skew_pts       = max(0.0, (call_skew_ratio - 1.0) * 30)
+
+                    vol_regime_component = 0.6 * iv_prem_pts + 0.4 * skew_pts
+
                     raw_edge = (
-                        0.35 * cot_component +
-                        0.35 * bs_component +
+                        0.30 * cot_component +
+                        0.30 * bs_component +
                         0.20 * mc_component +
-                        0.10 * hist_component
+                        0.08 * hist_component +
+                        0.12 * vol_regime_component
                     )
                     macro_mult = compute_macro_multiplier(raw_data, seg, opt_type)
                     edge_score = round(raw_edge * macro_mult, 2)
+
+                    # Soft infra-demand bias: only when COT + EIA + Skew all simultaneously strong
+                    if cot_z > 1.5 and eia_impact >= 1.4 and call_skew_ratio > 1.15:
+                        edge_score = round(edge_score * 1.12, 2)
 
                     all_candidates.append({
                         "symbol":           symbol,
@@ -373,6 +409,8 @@ def run_pipeline():
                         "prophet_drift":     drift,
                         "prophet_direction": prop_dir,
                         "macro_multiplier":  macro_mult,
+                        "iv_premium":        round(iv_premium, 3),
+                        "call_skew_ratio":   call_skew_ratio,
                     })
                     accepted += 1
 
