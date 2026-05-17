@@ -70,10 +70,9 @@ class DataHealthChecker:
             "options_chains": bool(raw_data.get("options_chains")),
             "fred_rate": bool(raw_data.get("fred", {}).get("fed_funds_rate")),
             "cot": bool(raw_data.get("cot")),
-            "rss": bool(raw_data.get("rss")),
+            "eia": bool(raw_data.get("eia")),   # RSS läuft in Stage 3, nicht in raw_data
         }
         optional = {
-            "eia": bool(raw_data.get("eia")),
             "yfinance": bool(raw_data.get("yfinance")),
             "candles": bool(raw_data.get("candles")),
             "historical_options": bool(raw_data.get("historical_options")),
