@@ -58,8 +58,9 @@ class PyCOTAnalyzer:
 
             # --- Locate market rows ---
             market_data = pd.DataFrame()
+            match_method = "none"
 
-            # 1. Try cot_code from config (most reliable)
+            # 1. Try cot_code from config (most reliable — immune to name changes)
             cot_code = cot_cfg.get("cot_code", "")
             if cot_code:
                 for col in ["CFTC_Commodity_Code", "Contract_Market_Code",
@@ -68,10 +69,10 @@ class PyCOTAnalyzer:
                         mask = df[col].astype(str).str.strip() == str(cot_code).strip()
                         if mask.any():
                             market_data = df[mask].copy()
-                            print(f"  [COT] {ticker}: matched by code '{cot_code}' via {col} ({len(market_data)} rows)")
+                            match_method = f"code '{cot_code}' via {col}"
                             break
 
-            # 2. Fallback: market name keyword search
+            # 2. Fallback: market name keyword search (warn — names can change)
             if market_data.empty:
                 market_name = _MARKET_NAME_MAP.get(ticker.upper(), "")
                 if market_name:
@@ -81,8 +82,12 @@ class PyCOTAnalyzer:
                             mask = df[col].str.contains(market_name, case=False, na=False)
                             if mask.any():
                                 market_data = df[mask].copy()
-                                print(f"  [COT] {ticker}: matched by name '{market_name}' ({len(market_data)} rows)")
+                                match_method = f"name-fallback '{market_name}'"
+                                print(f"  [COT] ⚠️  {ticker}: code match failed — using name fallback (fragile)")
                                 break
+
+            if not market_data.empty:
+                print(f"  [COT] {ticker}: matched via {match_method} ({len(market_data)} rows)")
 
             if market_data.empty:
                 print(f"  [COT] {ticker}: kein Match gefunden → Default")
@@ -144,23 +149,24 @@ class PyCOTAnalyzer:
             else:
                 cot_index = 50.0 + z_score * 15
 
-            # Signal logic
-            if commercial_oi_ratio > 30 and z_score > 1.8 and momentum > 40:
+            # Signal logic — thresholds calibrated for real commodity setups
+            # (z>1.8 almost never triggers in practice; z>1.3 is the realistic extreme)
+            if commercial_oi_ratio > 25 and z_score > 1.5 and momentum > 30:
                 signal, strength_score = "Strong Bullish", 2.5
-            elif commercial_oi_ratio > 22 and z_score > 1.2:
+            elif commercial_oi_ratio > 18 and z_score > 1.0:
                 signal, strength_score = "Bullish", 1.8
-            elif commercial_oi_ratio > 12 and z_score > 0.5:
+            elif commercial_oi_ratio > 10 and z_score > 0.4:
                 signal, strength_score = "Mild Bullish", 1.3
-            elif commercial_oi_ratio < -30 and z_score < -1.8 and momentum < -40:
+            elif commercial_oi_ratio < -25 and z_score < -1.5 and momentum < -30:
                 signal, strength_score = "Strong Bearish", 0.3
-            elif commercial_oi_ratio < -22 and z_score < -1.2:
+            elif commercial_oi_ratio < -18 and z_score < -1.0:
                 signal, strength_score = "Bearish", 0.6
-            elif commercial_oi_ratio < -12 and z_score < -0.5:
+            elif commercial_oi_ratio < -10 and z_score < -0.4:
                 signal, strength_score = "Mild Bearish", 0.8
             else:
                 signal, strength_score = "Neutral", 1.0
 
-            return {
+            result = {
                 "cot_index":            round(cot_index, 1),
                 "commercial_oi_ratio":  round(commercial_oi_ratio, 1),
                 "net_commercial":       int(net_com),
@@ -169,7 +175,12 @@ class PyCOTAnalyzer:
                 "signal_strength":      signal,
                 "strength_score":       strength_score,
                 "history_rows":         len(market_data),
+                "match_method":         match_method,
             }
+            print(f"  [COT] {ticker} → {signal} | z={z_score:.2f} | "
+                  f"OI-Ratio={commercial_oi_ratio:.1f}% | "
+                  f"rows={len(market_data)} | via {match_method}")
+            return result
 
         except Exception as e:
             print(f"  ❌ PyCOT v6 Error für {ticker}: {e}")
