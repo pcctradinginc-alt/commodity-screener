@@ -96,8 +96,9 @@ AKTUELLER SPOT-PREIS: {spot} USD ← SEHR WICHTIG!
 REGELN (strikt einhalten):
 - Nur Optionen mit Delta 0.20–0.45 empfehlen.
 - Keine Deep-OTM-Optionen (Strike >12% vom Spot bei DTE < 60 Tagen).
-- Nur Optionen mit bs_edge > 0 (günstig vs. HV-Fair-Value) und mc_ev > 0 empfehlen.
-- Bei unrealistischem Move oder negativem EV → "KEIN TRADE EMPFOHLEN".
+- Bei unrealistischem Move → "KEIN TRADE EMPFOHLEN".
+- POSITION-SIZING: Empfehle 1 Kontrakt wenn Conviction < 7, 2 Kontrakte wenn ≥ 7. Max. Risiko pro Trade: 2% des angenommenen $50.000-Portfolios = $1.000.
+- EXIT-REGELN: Profit-Take bei +50% | Stop-Loss bei -50% | Zwangs-Exit bei 50% DTE unterschritten.
 
 SEGMENT: {seg.upper()}
 NEWS: {news_hl}
@@ -124,9 +125,12 @@ EMPFEHLUNG: [Symbol] [Strike] [Expiry] [Call/Put]
 EINSTIEG (MID): $[Mid-Preis]
 FAIR VALUE BS: $[BS-Preis] oder n/a
 CONVICTION: [1-10] — [kurze Begründung]
-MAX. VERLUST: $[Praemie x 100]
+KONTRAKTE: [1 oder 2] — [Begründung Sizing]
+MAX. VERLUST: $[Praemie x 100 x Kontrakte]
 MC EXP. VALUE: $[MC EV]
 WIN-RATE HIST.: [X%] (n=[Stichprobe])
+PROFIT-TAKE: $[Mid-Preis x 1.5 x 100 x Kontrakte] bei +50%
+STOP-LOSS: $[Mid-Preis x 0.5 x 100 x Kontrakte] bei -50% oder DTE < [DTE/2]
 THESE: [1 Satz]
 INVALIDIERUNG: [1 Satz]
 NEWS-KONTEXT: [1 Satz]
