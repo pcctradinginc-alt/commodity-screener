@@ -285,7 +285,8 @@ def run_pipeline():
                     })
 
                     # --- Combined edge score + EIA/FRED macro multiplier ---
-                    cot_component  = cot_strength * 20          # 0–50
+                    # cot_z adds continuous signal on top of discrete cot_strength levels
+                    cot_component  = cot_strength * 20 + (cot_z * 8)   # z=1.5 → +12 pts
                     bs_component   = max(0.0, bs_edge * 100)    # 0 if overvalued
                     mc_component   = max(0.0, mc_ev / 5.0)
                     hist_component = bt.get("win_rate", 0.48) * 20
