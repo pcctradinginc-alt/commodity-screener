@@ -95,6 +95,48 @@ def compute_eia_impact(raw_data: dict, seg: str) -> tuple:
     return round(impact, 2), round(max(-1.0, min(eia_score, 1.0)), 2)
 
 
+def compute_aschenbrenner_bias(raw_data: dict, ticker: str,
+                               iv_premium: float, call_skew_ratio: float,
+                               cfg: dict) -> float:
+    """
+    Additive edge bonus (0–8 pts) for AI-infra tickers when ≥2 signals align.
+    Signals are independent of each other and already in the main edge score —
+    this is a small structural tilt, not a multiplier.
+    """
+    ab = cfg.get("aschenbrenner", {})
+    if not ab.get("enabled", True):
+        return 0.0
+    if ticker not in ab.get("focus_tickers", []):
+        return 0.0
+
+    bias_max = float(ab.get("bias_max_points", 8.0))
+    required = int(ab.get("required_signals", 2))
+    signals  = 0
+
+    # 1. COT strongly bullish
+    cot = raw_data.get("cot", {}).get(ticker, {})
+    if cot.get("z_score", 0) > 1.0 and cot.get("strength_score", 1.0) >= 1.5:
+        signals += 1
+
+    # 2. EIA strong inventory draw (energy signal, neutral for metals/nuclear)
+    for series in raw_data.get("eia", {}).get("energy", {}).values():
+        if series.get("z_score", 0) < -1.0 and series.get("delta", 0) < -3000:
+            signals += 1
+            break
+
+    # 3. IV-Premium elevated (market pricing in supply-shock / infra-demand)
+    if iv_premium > ab.get("iv_premium_threshold", 0.12):
+        signals += 1
+
+    # 4. Call-skew elevated (right-tail demand for physical commodity)
+    if call_skew_ratio > 1.10:
+        signals += 1
+
+    if signals >= required:
+        return round(bias_max * (signals / 4.0), 2)
+    return 0.0
+
+
 def compute_segment_skew(chains: list) -> float:
     """
     OTM call IV / OTM put IV ratio for a segment's options chain.
@@ -380,6 +422,12 @@ def run_pipeline():
                     if cot_z > 1.5 and eia_impact >= 1.4 and call_skew_ratio > 1.15:
                         edge_score = round(edge_score * 1.12, 2)
 
+                    # Aschenbrenner structural tilt: additive +0–8 pts for AI-infra tickers
+                    ab_bias = compute_aschenbrenner_bias(
+                        raw_data, ticker, iv_premium, call_skew_ratio, cfg
+                    )
+                    edge_score = round(edge_score + ab_bias, 2)
+
                     all_candidates.append({
                         "symbol":           symbol,
                         "segment":          seg,
@@ -409,8 +457,9 @@ def run_pipeline():
                         "prophet_drift":     drift,
                         "prophet_direction": prop_dir,
                         "macro_multiplier":  macro_mult,
-                        "iv_premium":        round(iv_premium, 3),
-                        "call_skew_ratio":   call_skew_ratio,
+                        "iv_premium":           round(iv_premium, 3),
+                        "call_skew_ratio":      call_skew_ratio,
+                        "aschenbrenner_bias":   ab_bias,
                     })
                     accepted += 1
 
