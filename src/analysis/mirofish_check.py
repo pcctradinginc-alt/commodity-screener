@@ -34,5 +34,5 @@ class MirofishChecker:
         )
 
         print(f"  Mirofish passed: {len(passed)} / {len(candidates)} "
-              f"(mc_ev>0 AND bs_edge>0 AND edge≥{self.min_score})")
+              f"(mc_ev>0 OR bs_edge>-0.05) AND edge≥18")
         return passed[:20]
