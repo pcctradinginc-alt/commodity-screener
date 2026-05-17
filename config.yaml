@@ -16,6 +16,17 @@ watchlist:
     cot_code: "088691"
     smile_factor: 0.12
 
+keywords:
+  energy:
+    high:   [OPEC, "production cut", "supply shock", "inventory draw", "sanctions", "Hormuz", "pipeline", "refinery outage", "SPR release"]
+    medium: [crude, WTI, Brent, "natural gas", LNG, "rig count", EIA, "storage change", "demand surge", "export ban"]
+  agri:
+    high:   [USDA, WASDE, drought, "La Nina", "crop failure", "export ban", "food crisis", "harvest shortfall", "frost damage"]
+    medium: [corn, wheat, soybean, "planting progress", "crop condition", ethanol, "feed demand", "rainfall deficit", "acreage"]
+  metals:
+    high:   ["Fed pivot", "rate cut", "inflation surge", "China stimulus", "mine strike", "supply disruption", "safe haven", "dollar crash"]
+    medium: [gold, silver, copper, LME, "interest rate", "real yield", "central bank buying", "industrial demand", "inventory"]
+
 thresholds:
   data_health_min: 55
   segment_score_min: 4          # echtes News-Gate (vorher: 1)
