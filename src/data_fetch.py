@@ -211,7 +211,10 @@ class DataFetcher:
     # -------------------------------------------------------------------- EIA
 
     def fetch_eia(self):
-        """Fetches weekly inventory data for configured EIA series."""
+        """
+        Enhanced EIA: 12-week history, Z-Score vs. 4-week baseline, signal classification.
+        Feeds both edge score multiplier AND MC drift via compute_eia_impact().
+        """
         api_key = os.getenv("EIA_KEY", "")
         if not api_key:
             print("  ⚠️  EIA_KEY fehlt — EIA-Daten übersprungen")
@@ -223,27 +226,58 @@ class DataFetcher:
                 try:
                     url = (
                         f"https://api.eia.gov/v2/seriesid/{series_id}"
-                        f"?api_key={api_key}&length=4"
+                        f"?api_key={api_key}&length=12"
                     )
                     r = self.session.get(url, timeout=12)
                     if r.status_code != 200:
                         continue
                     data = r.json().get("response", {}).get("data", [])
-                    if len(data) < 2:
+                    if len(data) < 4:
                         continue
-                    latest = float(data[0].get("value", 0) or 0)
-                    prev   = float(data[1].get("value", 0) or 0)
+
+                    data_sorted = sorted(data, key=lambda x: x.get("period", ""), reverse=True)
+                    values = [float(d.get("value", 0) or 0) for d in data_sorted]
+
+                    latest = values[0]
+                    prev   = values[1]
                     delta  = latest - prev
+
+                    # Z-Score: latest vs. weeks 4–11 as baseline (avoids look-ahead)
+                    baseline = values[4:] if len(values) >= 8 else values[2:]
+                    if baseline and np.std(baseline) > 0:
+                        z_score = (latest - np.mean(baseline)) / np.std(baseline)
+                    else:
+                        z_score = 0.0
+
+                    # Seasonal surprise: this week's change vs. avg abs-change
+                    recent_changes = [abs(values[i] - values[i+1]) for i in range(1, min(5, len(values)-1))]
+                    avg_change = np.mean(recent_changes) if recent_changes else 1.0
+                    surprise = delta / (avg_change + 1.0)
+
+                    # Signal classification
+                    if z_score < -1.5 and delta < -5000:
+                        signal = "STRONG_BULLISH"
+                    elif z_score < -0.8 and delta < -2000:
+                        signal = "BULLISH"
+                    elif z_score > 1.5 and delta > 5000:
+                        signal = "STRONG_BEARISH"
+                    elif z_score > 0.8 and delta > 2000:
+                        signal = "BEARISH"
+                    else:
+                        signal = "NEUTRAL"
+
                     if seg not in results:
                         results[seg] = {}
                     results[seg][series_id] = {
-                        "latest":     latest,
-                        "prev":       prev,
-                        "delta":      round(delta, 2),
+                        "latest":     round(latest, 1),
+                        "delta":      round(delta, 1),
+                        "z_score":    round(z_score, 2),
+                        "surprise":   round(surprise, 2),
                         "pct_change": round(delta / prev * 100, 2) if prev else 0,
-                        "period":     data[0].get("period", ""),
+                        "period":     data_sorted[0].get("period", ""),
+                        "signal":     signal,
                     }
-                    print(f"  [EIA] {seg}/{series_id}: {latest:.1f} Δ{delta:+.1f}")
+                    print(f"  [EIA] {seg}/{series_id}: {latest:.0f} Δ{delta:+.0f} | Z={z_score:.2f} | {signal}")
                 except Exception as e:
                     print(f"  [EIA] {series_id}: {e}")
 
