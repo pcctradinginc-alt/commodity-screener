@@ -74,7 +74,8 @@ class ProphetForecaster:
             lower = float(forecast["yhat_lower"].iloc[-1])
             upper = float(forecast["yhat_upper"].iloc[-1])
 
-            drift = (forecast_5d - last_actual) / last_actual if last_actual > 0 else 0
+            raw_drift = (forecast_5d - last_actual) / last_actual if last_actual > 0 else 0
+            drift = max(-0.40, min(raw_drift, 0.40))  # cap at ±40% annual equiv.
             ci_width = (upper - lower) / last_actual if last_actual > 0 else 1
             confidence = max(0.1, 1.0 - min(ci_width, 1.0))
 
