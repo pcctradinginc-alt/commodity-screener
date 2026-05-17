@@ -16,12 +16,15 @@ class MirofishChecker:
 
         passed = []
         for c in candidates:
-            mc_ev    = c.get("mc_ev", 0)
-            bs_edge  = c.get("bs_edge", 0)
-            edge     = c.get("edge_score", 0)
+            mc_ev   = c.get("mc_ev", 0)
+            bs_edge = c.get("bs_edge", 0)
+            edge    = c.get("edge_score", 0)
 
-            # Require positive EV from both MC and BS, plus minimum edge score
-            if mc_ev > 0 and bs_edge > 0 and edge >= self.min_score:
+            # Softer gate: MC-EV positive OR BS only slightly overvalued vs HV.
+            # Strict AND was too aggressive: when market IV > HV (common in uncertain
+            # markets), bs_edge is structurally negative → everything would be filtered.
+            ev_ok   = mc_ev > 0 or bs_edge > -0.05
+            if ev_ok and edge >= 18:
                 passed.append(c)
 
         # Sort by combined quality: MC-EV weight + BS-edge weight
