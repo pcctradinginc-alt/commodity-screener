@@ -51,7 +51,7 @@ class ProphetForecaster:
             else:
                 return self._fallback_forecast(segment, hist)
 
-            df["ds"] = pd.to_datetime(df["ds"])
+            df["ds"] = pd.to_datetime(df["ds"], utc=True).dt.tz_localize(None)
             df = df[["ds", "y"]].dropna().sort_values("ds")
 
             if len(df) < 20:
