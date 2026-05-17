@@ -42,7 +42,8 @@ Kandidaten:"""
                 f" | delta={c.get('delta', 0):.2f} | edge={c.get('edge_score', 0):.1f}"
             )
 
-        intro += "\n\nJSON-Array:"
+        # Index-based: Haiku returns {"id": 3, ...} — immune to symbol truncation
+        intro += "\n\nAntworte mit JSON-Array, jedes Objekt mit \"id\" (Nummer aus der Liste) und \"reason\".\nJSON-Array:"
         return intro
 
     def select(self, candidates, segment_scores=None):
@@ -60,19 +61,34 @@ Kandidaten:"""
                 )
                 text = response.content[0].text.strip()
 
-                # Extract JSON array (robust against surrounding text)
                 json_match = re.search(r"\[.*\]", text, re.DOTALL)
                 if not json_match:
                     raise ValueError("No JSON array in response")
 
                 parsed = json.loads(json_match.group())
-                symbols = {p["symbol"] for p in parsed if isinstance(p, dict) and "symbol" in p}
-                selected = [c for c in candidates if c.get("symbol") in symbols]
+
+                # Match by 1-based index id (primary) or symbol (fallback)
+                selected_indices = set()
+                selected_symbols = set()
+                for p in parsed:
+                    if not isinstance(p, dict):
+                        continue
+                    if "id" in p:
+                        idx = int(p["id"]) - 1
+                        if 0 <= idx < len(candidates):
+                            selected_indices.add(idx)
+                    if "symbol" in p:
+                        selected_symbols.add(p["symbol"])
+
+                selected = [
+                    c for i, c in enumerate(candidates)
+                    if i in selected_indices or c.get("symbol") in selected_symbols
+                ]
 
                 if selected:
                     print(f"  ✅ Haiku selected {len(selected)} candidates (attempt {attempt+1})")
                     return selected[:20]
-                raise ValueError("No matching symbols found")
+                raise ValueError("No matching ids or symbols found")
 
             except Exception as e:
                 print(f"  ⚠️  Haiku attempt {attempt+1} failed: {type(e).__name__} — {e}")
