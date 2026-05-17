@@ -39,8 +39,8 @@ thresholds:
   options_dte_max: 180
   options_delta_min: 0.20
   options_delta_max: 0.45
-  options_bid_ask_max_pct: 0.25
-  options_oi_min: 100
+  options_bid_ask_max_pct: 0.30
+  options_oi_min: 80
   options_volume_min: 0
   options_long_only: true
   outlier_zscore_threshold: 5.5
