@@ -1,5 +1,5 @@
 """
-Commodity Options Screener v3.3 — BS+MC+Prophet integriert, echte Filter, DataHealthChecker
+Commodity Options Screener v3.4 — Prophet-Fix, EIA/FRED Macro-Multiplier, Spread-Adjustment
 """
 
 import datetime
@@ -59,6 +59,40 @@ def save_last_run(artifact):
 
     with open(LAST_RUN_PATH, "w") as f:
         json.dump(convert(artifact), f, indent=2)
+
+
+def compute_macro_multiplier(raw_data: dict, seg: str, opt_type: str) -> float:
+    """
+    Returns a multiplier (0.70–1.35) based on EIA inventory shocks and FRED macro regime.
+    Positive signals for the option direction push above 1.0, headwinds below.
+    """
+    multiplier = 1.0
+
+    # EIA: inventory change (most relevant for energy, weaker signal for others)
+    eia_seg = raw_data.get("eia", {}).get(seg, {})
+    for series_data in eia_seg.values():
+        pct = series_data.get("pct_change", 0)
+        if opt_type == "call":
+            if pct < -2.5:   multiplier *= 1.15   # inventory draw → bullish underlying
+            elif pct > 3.0:  multiplier *= 0.85   # large build → bearish for calls
+        else:
+            if pct > 2.5:    multiplier *= 1.15   # large build → bearish underlying
+            elif pct < -3.0: multiplier *= 0.85   # large draw → bearish for puts
+
+    # FRED: dollar index and 10y rate
+    fred = raw_data.get("fred", {})
+    dxy  = fred.get("dollar_index", 0)
+    r10y = fred.get("treasury_10y", 0)
+
+    if dxy > 0:
+        if dxy > 106:    multiplier *= 0.88   # very strong USD = commodity headwind
+        elif dxy > 103:  multiplier *= 0.94
+        elif dxy < 98:   multiplier *= 1.08   # weak USD = commodity tailwind
+
+    if r10y > 4.5 and seg == "metals":
+        multiplier *= 0.92   # high real rates = gold/silver headwind
+
+    return round(max(0.70, min(multiplier, 1.35)), 3)
 
 
 def compute_hv(yf_data, ticker, window=20):
@@ -167,8 +201,8 @@ def run_pipeline():
             hv = compute_hv(yf_data, ticker, window=20)
             smile_factor = seg_cfg.get("smile_factor", 0.15)
 
-            # Prophet drift for MC drift parameter
-            prophet_result = prophet.forecast(seg)
+            # Prophet drift — keyed by ticker (not segment) in yfinance data
+            prophet_result = prophet.forecast(ticker)
             drift    = prophet_result.get("drift", 0.0)
             prop_dir = prophet_result.get("direction", "neutral")
 
@@ -242,24 +276,28 @@ def run_pipeline():
 
                     # --- Backtest on underlying history ---
                     underlying_history = yf_data.get(ticker, [])
+                    spread_pct = (ask - bid) / ask if bid > 0 and ask > 0 else 0.05
                     bt = backtester.find_similar_real({
                         "symbol": symbol, "spot": spot, "strike": strike,
                         "dte": dte, "option_type": opt_type, "mid_price": mid_price,
+                        "spread_pct": spread_pct,
                         "underlying_history": underlying_history,
                     })
 
-                    # --- Combined edge score ---
+                    # --- Combined edge score + EIA/FRED macro multiplier ---
                     cot_component  = cot_strength * 20          # 0–50
-                    bs_component   = max(0.0, bs_edge * 100)    # 0–∞, 0 if overvalued
-                    mc_component   = max(0.0, mc_ev / 5.0)      # scaled
+                    bs_component   = max(0.0, bs_edge * 100)    # 0 if overvalued
+                    mc_component   = max(0.0, mc_ev / 5.0)
                     hist_component = bt.get("win_rate", 0.48) * 20
 
-                    edge_score = (
+                    raw_edge = (
                         0.35 * cot_component +
                         0.35 * bs_component +
                         0.20 * mc_component +
                         0.10 * hist_component
                     )
+                    macro_mult = compute_macro_multiplier(raw_data, seg, opt_type)
+                    edge_score = round(raw_edge * macro_mult, 2)
 
                     all_candidates.append({
                         "symbol":           symbol,
@@ -285,10 +323,11 @@ def run_pipeline():
                         "hist_sample_size": bt.get("n", 0),
                         "mirofish_score":   edge_score,
                         "edge_score":       edge_score,
-                        "cot_strength":     cot_strength,
-                        "cot_z":            cot_z,
-                        "prophet_drift":    drift,
+                        "cot_strength":      cot_strength,
+                        "cot_z":             cot_z,
+                        "prophet_drift":     drift,
                         "prophet_direction": prop_dir,
+                        "macro_multiplier":  macro_mult,
                     })
                     accepted += 1
 
