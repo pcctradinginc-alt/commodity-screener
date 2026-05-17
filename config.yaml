@@ -3,7 +3,7 @@ watchlist:
     tickers: [USO, XLE, UNG]
     rss_query: "crude oil WTI Brent OPEC natural gas"
     eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W"]
-    cot_code: "067411"          # ← aktueller, funktionierender Code 2026
+    cot_code: "067411"
     smile_factor: 0.18
   agri:
     tickers: [CORN, WEAT, SOYB]
@@ -15,15 +15,10 @@ watchlist:
     rss_query: "gold silver copper LME Fed interest rate metals"
     cot_code: "088691"
     smile_factor: 0.12
-  equity_proxy:
-    tickers: [XLE, GLD, USO]
-    rss_query: "XLE GLD USO energy ETF commodity fund"
-    cot_code: ""
-    smile_factor: 0.10
 
 thresholds:
   data_health_min: 55
-  segment_score_min: 1          # stark gelockert → Pipeline qualifiziert jetzt leichter
+  segment_score_min: 4          # echtes News-Gate (vorher: 1)
   mirofish_score_min: 25
   mirofish_timeout_seconds: 60
   mirofish_parallel_workers: 4
