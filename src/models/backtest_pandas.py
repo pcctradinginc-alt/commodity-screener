@@ -29,6 +29,10 @@ class BacktestPandas:
         if not underlying or len(underlying) < dte + 10:
             return {"win_rate": 0.48, "n": 0}
 
+        # Spread adjustment: simulate real execution cost (ask-fill instead of mid)
+        spread_pct = candidate.get("spread_pct", 0.05)   # default 5% half-spread
+        premium_adj = premium * (1.0 + spread_pct * 0.5)  # conservative: pay slightly above mid
+
         try:
             df = pd.DataFrame(underlying)
 
@@ -68,8 +72,8 @@ class BacktestPandas:
                 moneyness  = strike / spot
                 adj_strike = entry_spot * moneyness
 
-                # Breakeven = strike ± premium (scaled by spot ratio)
-                premium_scaled = premium * (entry_spot / spot) if spot > 0 else premium
+                # Breakeven uses spread-adjusted premium (realistic execution cost)
+                premium_scaled = premium_adj * (entry_spot / spot) if spot > 0 else premium_adj
 
                 if opt_type == "call":
                     breakeven  = adj_strike + premium_scaled
