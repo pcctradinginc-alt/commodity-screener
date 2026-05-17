@@ -194,10 +194,11 @@ def compute_macro_multiplier(raw_data: dict, seg: str, opt_type: str) -> float:
     dxy  = fred.get("dollar_index", 0)
     r10y = fred.get("treasury_10y", 0)
 
+    # DTWEXBGS broad trade-weighted index (normal range 110–130, not DXY 95–115)
     if dxy > 0:
-        if dxy > 106:    multiplier *= 0.88   # very strong USD = commodity headwind
-        elif dxy > 103:  multiplier *= 0.94
-        elif dxy < 98:   multiplier *= 1.08   # weak USD = commodity tailwind
+        if dxy > 125:    multiplier *= 0.88   # very strong broad USD = commodity headwind
+        elif dxy > 121:  multiplier *= 0.94
+        elif dxy < 112:  multiplier *= 1.08   # weak broad USD = commodity tailwind
 
     if r10y > 4.5 and seg == "metals":
         multiplier *= 0.92   # high real rates = gold/silver headwind
@@ -374,7 +375,19 @@ def run_pipeline():
 
             accepted = 0
 
-            for opt in chains[:MAX_CANDIDATES_PER_SEGMENT]:
+            # Pre-filter: only options in the delta zone before applying the cap.
+            # Tradier chains are sorted by strike (ascending), so a naive [:80] slice
+            # on a 942-contract chain lands entirely in deep-OTM/deep-ITM territory.
+            delta_lo = delta_min - 0.05  # slight margin to catch greeks rounding
+            delta_hi = delta_max + 0.05
+            relevant_chains = [
+                opt for opt in chains
+                if delta_lo <= abs(float(opt.get("delta", 0) or 0)) <= delta_hi
+            ]
+            if not relevant_chains:
+                relevant_chains = chains  # fallback: no pre-filter if no greeks available
+
+            for opt in relevant_chains[:MAX_CANDIDATES_PER_SEGMENT]:
                 try:
                     symbol = opt.get("symbol", "")
                     if not symbol:
