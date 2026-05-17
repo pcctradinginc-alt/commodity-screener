@@ -2,7 +2,7 @@ name: Commodity Options Screener
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 6 * * 1-5'   # Mo–Fr 08:00 CEST (06:00 UTC)
   workflow_dispatch:
 
 jobs:
@@ -20,38 +20,49 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache HuggingFace models (FinBERT ~400 MB)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-finbert-v1
+          restore-keys: |
+            ${{ runner.os }}-hf-finbert-
+
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run Screener
         env:
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          EIA_KEY: ${{ secrets.EIA_KEY }}
-          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-          FRED_KEY: ${{ secrets.FRED_KEY }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          TRADIER_KEY: ${{ secrets.TRADIER_KEY }}
+          CLAUDE_API_KEY:      ${{ secrets.CLAUDE_API_KEY }}
+          EIA_KEY:             ${{ secrets.EIA_KEY }}
+          FINNHUB_KEY:         ${{ secrets.FINNHUB_KEY }}
+          FRED_KEY:            ${{ secrets.FRED_KEY }}
+          GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER:          ${{ secrets.GMAIL_USER }}
+          RECIPIENT_EMAIL:     ${{ secrets.RECIPIENT_EMAIL }}
+          TRADIER_KEY:         ${{ secrets.TRADIER_KEY }}
+          HF_HOME:             ~/.cache/huggingface
+          TRANSFORMERS_CACHE:  ~/.cache/huggingface
         run: python src/main.py
 
       - name: Commit persistent files
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Ordner & Dummy-Datei sicherstellen
           mkdir -p data
           touch data/.keep
-          
-          # Force-add mit Fehlerunterdrückung
           git add -f data/last_run.json 2>/dev/null || echo "last_run.json not found"
-          git add -f data/*.json 2>/dev/null || echo "No other json files found"
-          
-          # Nur committen, wenn wirklich etwas geändert wurde
+          git add -f data/positions.json 2>/dev/null || echo "positions.json not found"
           if ! git diff --cached --quiet; then
-            git commit -m "Update last_run.json and positions [skip ci]"
+            git commit -m "screener: update run data [skip ci]"
             git push
           else
             echo "No changes to commit"
