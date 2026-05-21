@@ -1,6 +1,6 @@
 {
   "errors": [],
-  "runtime_seconds": 39,
+  "runtime_seconds": 33,
   "recommendation": {
     "symbol": "NO TRADE",
     "strike": 0,
@@ -27,6 +27,6 @@
     "high_volatility_flag": false,
     "warnings": []
   },
-  "candidates_total": 34,
-  "candidates_passed": 20
+  "candidates_total": 24,
+  "candidates_passed": 18
 }
