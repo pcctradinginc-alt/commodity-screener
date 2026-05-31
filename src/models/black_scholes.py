@@ -1,7 +1,11 @@
 """
-Black-Scholes Fair Value + Greeks
-FIX-5: Direct Tradier IV — Newton-Raphson removed
-FIX-8: Volatility Surface smile correction for OTM options
+Black-Scholes Fair Value + Greeks (European approximation for American ETF options)
+
+Primary path: fair_value() and greeks() receive market IV directly from Tradier
+(per-contract, strike-specific — smile already implicit in market quotes).
+
+smile_adjusted_iv() is a fallback only: used when Tradier IV is missing or zero,
+applying a quadratic smile correction on top of HV.
 """
 
 import numpy as np
@@ -14,9 +18,8 @@ class BlackScholesCalculator:
 
     def smile_adjusted_iv(self, iv_atm, spot, strike, smile_factor=0.15):
         """
-        FIX-8: Approximate volatility smile correction.
-        OTM options have higher IV than ATM in commodity markets.
-        sigma_adj = sigma_ATM * (1 + smile_factor * moneyness^2)
+        HV-fallback only: quadratic smile correction when Tradier IV is unavailable.
+        Not used when market IV is present — per-strike Tradier IV already reflects smile.
         """
         if spot <= 0 or strike <= 0:
             return iv_atm
@@ -24,10 +27,7 @@ class BlackScholesCalculator:
         return iv_atm * (1 + smile_factor * moneyness ** 2)
 
     def fair_value(self, spot, strike, r, T, sigma, option_type="call"):
-        """
-        FIX-5: sigma comes directly from Tradier mid_iv.
-        No Newton-Raphson recalculation to avoid circular references.
-        """
+        """European BS fair value. sigma should be market IV from Tradier."""
         if T <= 0 or sigma <= 0 or spot <= 0:
             return 0.0
         d1 = (np.log(spot / strike) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))

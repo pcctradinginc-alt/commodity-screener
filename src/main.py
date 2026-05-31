@@ -445,26 +445,34 @@ def run_pipeline():
                             + datetime.timedelta(days=dte)
                         ).strftime("%Y-%m-%d")
 
-                        # --- Black-Scholes with HV (not circular market IV) ---
-                        sigma_adj = bs_calc.smile_adjusted_iv(hv, spot, strike, smile_factor)
-                        fv_bs     = bs_calc.fair_value(spot, strike, r=risk_free_rate,
-                                                       T=T, sigma=sigma_adj, option_type=opt_type)
-                        greeks    = bs_calc.greeks(spot, strike, r=risk_free_rate,
-                                                   T=T, sigma=sigma_adj, option_type=opt_type)
+                        # Market IV from Tradier (per-contract, strike-specific)
+                        market_iv = float(opt.get("implied_volatility", 0) or 0)
+                        if market_iv <= 0:
+                            # Fallback: smile-adjusted HV when Tradier IV missing
+                            market_iv = bs_calc.smile_adjusted_iv(hv, spot, strike, smile_factor)
+                            print(f"  [{seg}/{ticker}] {symbol}: IV missing, HV fallback {hv:.1%}")
 
-                        # Positive bs_edge = option cheap vs. HV-implied fair value
+                        # BS fair value uses market IV — Tradier provides per-strike IV so
+                        # smile is already implicit. HV is kept only for iv_premium signal.
+                        fv_bs  = bs_calc.fair_value(spot, strike, r=risk_free_rate,
+                                                    T=T, sigma=market_iv, option_type=opt_type)
+                        greeks = bs_calc.greeks(spot, strike, r=risk_free_rate,
+                                                T=T, sigma=market_iv, option_type=opt_type)
+
+                        # With market IV, bs_edge ≈ 0 is expected.
+                        # Large deviations signal stale or inconsistent IV data from Tradier.
                         bs_edge = (fv_bs - mid_price) / mid_price if mid_price > 0 else 0.0
 
-                        # --- Monte Carlo EV ---
+                        # IV rank: market_iv / HV ratio → approximate rank 0-100
+                        iv_rank = min(100, max(0, int((market_iv / hv - 0.7) / 0.6 * 100))) if hv > 0 else 50
+
+                        # MC uses HV (realized vol) as forward sigma — not market IV.
+                        # Positive EV means the option is cheap relative to expected realized moves.
                         mc_ev, mc_win_prob = mc_sim.simulate(
                             spot=spot, strike=strike, r=risk_free_rate, T=T,
-                            sigma=sigma_adj, premium=mid_price,
+                            sigma=hv, premium=mid_price,
                             drift=drift, option_type=opt_type
                         )
-
-                        # IV rank: market_iv / HV ratio → approximate rank 0-100
-                        market_iv = float(opt.get("implied_volatility", hv) or hv)
-                        iv_rank = min(100, max(0, int((market_iv / hv - 0.7) / 0.6 * 100))) if hv > 0 else 50
 
                         # --- Backtest on underlying history ---
                         underlying_history = yf_data.get(ticker, [])
