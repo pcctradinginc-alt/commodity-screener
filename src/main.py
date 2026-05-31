@@ -466,11 +466,11 @@ def run_pipeline():
                         # IV rank: market_iv / HV ratio → approximate rank 0-100
                         iv_rank = min(100, max(0, int((market_iv / hv - 0.7) / 0.6 * 100))) if hv > 0 else 50
 
-                        # MC uses HV (realized vol) as forward sigma — not market IV.
-                        # Positive EV means the option is cheap relative to expected realized moves.
+                        # MC uses HV as forward sigma; entry at ask (realistic fill).
+                        # Positive EV = option cheap relative to expected realized moves, net of costs.
                         mc_ev, mc_win_prob = mc_sim.simulate(
                             spot=spot, strike=strike, r=risk_free_rate, T=T,
-                            sigma=hv, premium=mid_price,
+                            sigma=hv, premium=mid_price, ask=ask,
                             drift=drift, option_type=opt_type
                         )
 
