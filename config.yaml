@@ -1,0 +1,76 @@
+watchlist:
+  energy:
+    tickers: [USO, XLE, UNG]
+    rss_query: "crude oil WTI Brent OPEC natural gas"
+    eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W", "NW2_EPG0_SWO_R48_BCF.W"]
+    cot_code: "067411"
+    smile_factor: 0.18
+  agri:
+    tickers: [CORN, WEAT, SOYB]
+    rss_query: "USDA WASDE corn wheat soybean crop harvest"
+    cot_code: "002602"
+    smile_factor: 0.22
+  metals:
+    tickers: [GLD, SLV, COPX]
+    rss_query: "gold silver copper LME Fed interest rate metals"
+    cot_code: "088691"
+    smile_factor: 0.12
+  nuclear:
+    tickers: [URA, URNM, SRUUF]   # SRUUF = Sprott Physical Uranium Trust (spot proxy, no options)
+    rss_query: "uranium nuclear power AI datacenter baseload SMR reactor enrichment"
+    eia_series: []
+    cot_code: ""
+    smile_factor: 0.25
+
+keywords:
+  energy:
+    high:   [OPEC, "production cut", "supply shock", "inventory draw", "sanctions", "Hormuz", "pipeline", "refinery outage", "SPR release"]
+    medium: [crude, WTI, Brent, "natural gas", LNG, "rig count", EIA, "storage change", "demand surge", "export ban"]
+  agri:
+    high:   [USDA, WASDE, drought, "La Nina", "crop failure", "export ban", "food crisis", "harvest shortfall", "frost damage"]
+    medium: [corn, wheat, soybean, "planting progress", "crop condition", ethanol, "feed demand", "rainfall deficit", "acreage"]
+  metals:
+    high:   ["Fed pivot", "rate cut", "inflation surge", "China stimulus", "mine strike", "supply disruption", "safe haven", "dollar crash"]
+    medium: [gold, silver, copper, LME, "interest rate", "real yield", "central bank buying", "industrial demand", "inventory"]
+
+aschenbrenner:
+  enabled: true
+  bias_max_points: 8.0          # additive max. +8 Punkte auf edge_score
+  required_signals: 2           # mindestens 2 von 4 unabhängigen Signalen
+  iv_premium_threshold: 0.12    # market_iv / HV - 1 > 12%
+  focus_tickers: [UNG, USO, XLE, COPX, SLV, URA, URNM]
+
+thresholds:
+  data_health_min: 55
+  segment_score_min: 4          # echtes News-Gate (vorher: 1)
+  mirofish_score_min: 25
+  mirofish_timeout_seconds: 60
+  mirofish_parallel_workers: 4
+  conviction_min_for_trade: 6
+  max_qualifiers: 2
+  options_dte_min: 21
+  options_dte_max: 180
+  options_delta_min: 0.20
+  options_delta_max: 0.45
+  options_bid_ask_max_pct: 0.30
+  options_oi_min: 80
+  options_volume_min: 0
+  options_long_only: true
+  outlier_zscore_threshold: 5.5
+
+email:
+  recipients:
+    - set-via-RECIPIENT_EMAIL-secret
+  subject_template: "[Commodity Screener] {segment} | {ticker} | Conviction {score}/10 | {date}"
+
+monte_carlo:
+  simulations: 10000
+  seed: 42
+
+backtest:
+  lookback_days: 730
+  min_sample_size: 20
+  cot_release_lag_days: 3
+  eia_release_lag_days: 1
+  fred_release_lag_days: 1
+  apply_spread_adjustment: true
