@@ -356,6 +356,14 @@ def run_pipeline():
                       f"EIA={eia_impact:.2f}x | Skew={call_skew_ratio:.3f} | "
                       f"Prophet={prop_dir} drift={drift:+.4f}")
 
+                # No directional thesis: skip ticker entirely when Prophet is neutral
+                # AND COT is weak (adjusted for proxy quality). Long options need a
+                # directional catalyst — neutral + weak positioning = no edge.
+                effective_cot_z = cot_z * cot_proxy_weight
+                if prop_dir == "neutral" and effective_cot_z < 0.4:
+                    print(f"  [{seg}] {ticker}: Prophet neutral + COT weak (z×w={effective_cot_z:.2f}) → no directional thesis, skipping")
+                    continue
+
                 accepted = 0
 
                 # Pre-filter: only options in the delta zone before applying the cap.

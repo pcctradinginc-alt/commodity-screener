@@ -74,6 +74,7 @@ thresholds:
   options_long_only: true
   outlier_zscore_threshold: 5.5
   commission_per_contract: 0.65   # USD per contract, one side (entry only)
+  iv_overheat_threshold: 1.5      # iv_premium > 1.5 = market_iv > 2.5× HV → no long trade (panic IV)
 
 email:
   recipients:

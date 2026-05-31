@@ -121,6 +121,30 @@ Geplant als Stufe 8. Siehe [README.md Known Gaps](../README.md#known-gaps-see-au
 
 ---
 
+### GAP-11: ETF-Typ-spezifische Options-Eigenschaften nicht modelliert
+
+**Relevanz:** Hoch — betrifft Grundannahmen des Systems.
+
+Nicht alle Commodity-ETFs im Watchlist bieten dasselbe Risikoprofil für Long-Options:
+
+| ETF-Typ | Hauptproblem für Long-Options | Konsequenz |
+|---------|------------------------------|------------|
+| USO, UNG | Roll Yield — Contango frisst systematisch Wert | Calls brauchen Backwardation oder starken Momentum |
+| CORN, WEAT, SOYB | Starke Saisonalität, Roll Yield saisonabhängig | Calls nur in passender Jahreszeit (Ernte, Wetter) |
+| GLD, SLV | Nah am Spot, kein Roll-Problem | Realzins + USD sind dominante Faktoren |
+| XLE, COPX | Aktien-/Miners-Exposure, kein direkter Rohstoffpreis | Equity-Korrelation > Rohstoff-Korrelation; COT fast irrelevant |
+| URA, URNM | Uran-Equity-Proxy, narrativgetrieben | Dünne Options-Ketten, hohe Spreads, aktienlastig |
+
+**Was folgt daraus:**
+- Für USO/UNG: Long Calls nur wenn Futures-Kurve in Backwardation oder Roll Yield neutral (GAP-1)
+- Für XLE/COPX: COT-Gewichtung bereits auf 0.50/0.35 reduziert (Stufe 6), aber Equity-Beta nicht explizit kontrolliert
+- Für URA/URNM: `options_oi_min` und `options_bid_ask_max_pct` sind die wichtigsten Filter — Liquiditäts-Gate
+
+**Aufwand:** M (ETF-Typ-Klassifikation in config, segment-spezifische Gate-Logik)  
+**Priorität:** 2
+
+---
+
 ## Niedrigprioritäre Lücken (nice-to-have)
 
 ### GAP-8: Makro-Schwellenwerte nicht kalibriert

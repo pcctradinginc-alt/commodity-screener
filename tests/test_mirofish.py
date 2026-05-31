@@ -50,7 +50,23 @@ def test_bs_edge_zero_passes():
     assert len(MF.run([_c(bs_edge=0.0)])) == 1
 
 
-# --- Gate 3: edge_score >= 18 ---
+# --- Gate 3: iv_premium < 1.5 (IV not overheated) ---
+
+def test_iv_overheat_rejected():
+    assert MF.run([_c(iv_premium=1.6)]) == []
+
+def test_iv_premium_at_threshold_passes():
+    # Gate is strict >1.5, so exactly 1.5 passes
+    assert len(MF.run([_c(iv_premium=1.5)])) == 1
+
+def test_iv_premium_below_threshold_passes():
+    assert len(MF.run([_c(iv_premium=1.49)])) == 1
+
+def test_iv_premium_zero_passes():
+    assert len(MF.run([_c(iv_premium=0.0)])) == 1
+
+
+# --- Gate 4: edge_score >= 18 ---
 
 def test_low_edge_score_rejected():
     assert MF.run([_c(edge_score=17)]) == []
