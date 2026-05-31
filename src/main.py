@@ -364,12 +364,32 @@ def run_pipeline():
                     continue
 
                 # [T2] Very weak ETF proxy requires clear momentum to compensate.
-                # cot_proxy_weight < 0.35 means COT is nearly useless for this ETF
-                # (e.g. COPX = copper miners equity). Only proceed if Prophet is
-                # directional AND EIA or COT gives at least a mild signal.
                 if cot_proxy_weight < 0.35 and prop_dir == "neutral":
                     print(f"  [{seg}] {ticker}: [T2] Weak ETF proxy (w={cot_proxy_weight}) + no momentum → skip")
                     continue
+
+                # [T3] Signal contradiction: COT and Prophet point in opposite directions.
+                # A contradictory setup has no clear thesis — skip unless one signal
+                # is strong enough to override the other.
+                #   cot_strong:    abs(effective_cot_z) >= 1.5 (1.5-sigma positioning move)
+                #   prophet_strong: abs(drift) >= 0.05 (>=5% expected 5-day move)
+                cot_dir = (
+                    "bullish" if effective_cot_z > 0.4
+                    else "bearish" if effective_cot_z < -0.4
+                    else "neutral"
+                )
+                if (cot_dir != "neutral" and prop_dir != "neutral"
+                        and cot_dir != prop_dir):
+                    cot_strong     = abs(effective_cot_z) >= 1.5
+                    prophet_strong = abs(drift) >= 0.05
+                    if not cot_strong and not prophet_strong:
+                        print(
+                            f"  [{seg}] {ticker}: [T3] Contradiction — "
+                            f"COT {cot_dir} (z×w={effective_cot_z:.2f}) vs "
+                            f"Prophet {prop_dir} (drift={drift:+.4f}), "
+                            f"neither dominant → skip"
+                        )
+                        continue
 
                 accepted = 0
 
