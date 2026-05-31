@@ -1,25 +1,43 @@
+# INSTRUMENT: American-style options on commodity ETFs (NOT futures options)
+# Contract size: 100 shares per contract (correct for all ETF options below)
+# Exercise: American; Settlement: cash/shares; no physical delivery
+# COT codes reference CFTC futures reports — used as directional proxy only,
+# not as direct ETF positioning data.
+
 watchlist:
   energy:
     tickers: [USO, XLE, UNG]
+    # USO = United States Oil Fund (WTI front-month futures, rolling)
+    # XLE = Energy Select Sector SPDR (oil/gas equities; pays dividend — put early-exercise risk)
+    # UNG = United States Natural Gas Fund (NG front-month futures, rolling)
     rss_query: "crude oil WTI Brent OPEC natural gas"
     eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W", "NW2_EPG0_SWO_R48_BCF.W"]
-    cot_code: "067411"
+    cot_code: "067411"   # CFTC: Crude Oil, Light Sweet (NYMEX) — proxy for USO/XLE/UNG
     smile_factor: 0.18
   agri:
     tickers: [CORN, WEAT, SOYB]
+    # CORN = Teucrium Corn Fund (corn futures, rolling)
+    # WEAT = Teucrium Wheat Fund (wheat futures, rolling)
+    # SOYB = Teucrium Soybean Fund (soybean futures, rolling)
     rss_query: "USDA WASDE corn wheat soybean crop harvest"
-    cot_code: "002602"
+    cot_code: "002602"   # CFTC: Corn (CBOT) — proxy for CORN; not exact for WEAT/SOYB
     smile_factor: 0.22
   metals:
     tickers: [GLD, SLV, COPX]
+    # GLD = SPDR Gold Shares (gold spot, no roll cost)
+    # SLV = iShares Silver Trust (silver spot, no roll cost)
+    # COPX = Global X Copper Miners ETF (equity exposure, not copper spot)
     rss_query: "gold silver copper LME Fed interest rate metals"
-    cot_code: "088691"
+    cot_code: "088691"   # CFTC: Gold (COMEX) — proxy for GLD/SLV; not applicable to COPX
     smile_factor: 0.12
   nuclear:
-    tickers: [URA, URNM, SRUUF]   # SRUUF = Sprott Physical Uranium Trust (spot proxy, no options)
+    tickers: [URA, URNM]
+    # URA = Global X Uranium ETF (uranium equities)
+    # URNM = Sprott Uranium Miners ETF (uranium equities)
+    # SRUUF removed: Sprott Physical Uranium Trust trades OTC, no listed options available
     rss_query: "uranium nuclear power AI datacenter baseload SMR reactor enrichment"
-    eia_series: []
-    cot_code: ""
+    eia_series: []       # No EIA series for uranium; SRUUF momentum used as proxy in code
+    cot_code: ""         # No CFTC COT report for uranium (U3O8 not exchange-traded)
     smile_factor: 0.25
 
 keywords:
@@ -66,11 +84,17 @@ email:
 monte_carlo:
   simulations: 10000
   seed: 42
+  # GBM with constant volatility (sigma = HV). No stochastic vol.
+  # Contract multiplier: 100 (ETF options). Change if extended to futures options.
+  contract_multiplier: 100
 
 backtest:
-  lookback_days: 730
-  min_sample_size: 20
+  lookback_days: 730        # target; actual history limited by yfinance fetch window
+  min_sample_size: 20       # minimum trades for valid win-rate (increase to 30 before live)
   cot_release_lag_days: 3
   eia_release_lag_days: 1
   fred_release_lag_days: 1
   apply_spread_adjustment: true
+  # NOTE: backtest uses underlying price history only, not historical option prices.
+  # Win-rate measures whether ETF price exceeded breakeven at expiry.
+  # Theta decay, mid-term exits (+50%/-50%) and true option P&L are not simulated.
