@@ -106,6 +106,11 @@ After each run, GitHub Actions commits any changes automatically.
 **You must manually confirm whether you actually entered a trade.**
 The system generates recommendations only — it does not execute orders.
 
+## Documentation
+
+- [`docs/macro_framework.md`](docs/macro_framework.md) — Theoretical basis: Dalio commodity cycle thesis, empirical evidence, signal hierarchy per commodity group
+- [`docs/signal_gaps.md`](docs/signal_gaps.md) — Prioritized gap analysis: what signals are missing, why they matter, implementation roadmap
+
 ## Known Gaps (see audit log)
 
 These are documented limitations to address before live trading:
