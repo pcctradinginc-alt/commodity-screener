@@ -373,6 +373,10 @@ def run_pipeline():
                 cot_data     = raw_data.get("cot", {}).get(ticker, {})
                 cot_strength = cot_data.get("strength_score", 1.0)
                 cot_z        = cot_data.get("z_score", 0.0)
+                # Discount COT when ETF is an equity proxy (not a direct futures vehicle)
+                cot_proxy_weight = float(
+                    seg_cfg.get("cot_proxy_weights", {}).get(ticker, 1.0)
+                )
 
                 # Prophet drift — mix EIA directional score into drift (80/20 blend)
                 prophet_result = prophet.forecast(ticker)
@@ -388,7 +392,7 @@ def run_pipeline():
                 call_skew_ratio = compute_segment_skew(chains)
 
                 print(f"  [{seg}] {ticker} | Spot ${spot:.2f} | HV={hv:.1%} | "
-                      f"COT={cot_data.get('signal_strength')} z={cot_z:.2f} | "
+                      f"COT={cot_data.get('signal_strength')} z={cot_z:.2f} w={cot_proxy_weight:.2f} | "
                       f"EIA={eia_impact:.2f}x | Skew={call_skew_ratio:.3f} | "
                       f"Prophet={prop_dir} drift={drift:+.4f}")
 
@@ -485,7 +489,7 @@ def run_pipeline():
                         })
 
                         # --- Combined edge score ---
-                        cot_component  = (cot_strength * 20 + cot_z * 8) * eia_impact
+                        cot_component  = (cot_strength * 20 + cot_z * 8) * eia_impact * cot_proxy_weight
                         bs_component   = max(0.0, bs_edge * 100)
                         mc_component   = max(0.0, mc_ev / 5.0)
                         hist_component = bt.get("win_rate", 0.48) * 20
@@ -551,6 +555,7 @@ def run_pipeline():
                             "iv_premium":           round(iv_premium, 3),
                             "call_skew_ratio":      call_skew_ratio,
                             "aschenbrenner_bias":   ab_bias,
+                            "cot_proxy_weight":     cot_proxy_weight,
                         })
                         accepted += 1
 

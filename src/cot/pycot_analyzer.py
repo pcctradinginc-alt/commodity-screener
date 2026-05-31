@@ -72,8 +72,11 @@ class PyCOTAnalyzer:
                             match_method = f"code '{cot_code}' via {col}"
                             break
 
-            # 2. Fallback: market name keyword search (warn — names can change)
+            # 2. Fallback: market name keyword search (warn — names can change over time)
             if market_data.empty:
+                if not cot_code:
+                    print(f"  [COT] ⚠️  {ticker}: no cot_code configured — returning neutral default")
+                    return self._default_response()
                 market_name = _MARKET_NAME_MAP.get(ticker.upper(), "")
                 if market_name:
                     for col in ["Market_and_Exchange_Names", "Market and Exchange Names",
@@ -83,7 +86,7 @@ class PyCOTAnalyzer:
                             if mask.any():
                                 market_data = df[mask].copy()
                                 match_method = f"name-fallback '{market_name}'"
-                                print(f"  [COT] ⚠️  {ticker}: code match failed — using name fallback (fragile)")
+                                print(f"  [COT] ⚠️  {ticker}: cot_code '{cot_code}' not found — name fallback active (fragile)")
                                 break
 
             if not market_data.empty:

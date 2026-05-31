@@ -12,7 +12,9 @@ watchlist:
     # UNG = United States Natural Gas Fund (NG front-month futures, rolling)
     rss_query: "crude oil WTI Brent OPEC natural gas"
     eia_series: ["PET.WCRSTUS1.W", "PET.WGTSTUS1.W", "NW2_EPG0_SWO_R48_BCF.W"]
-    cot_code: "067411"   # CFTC: Crude Oil, Light Sweet (NYMEX) — proxy for USO/XLE/UNG
+    cot_code: "067411"   # CFTC: Crude Oil, Light Sweet (NYMEX)
+    # COT proxy quality per ticker (1.0 = direct futures match, lower = equity/indirect proxy)
+    cot_proxy_weights: {USO: 1.0, XLE: 0.5, UNG: 0.85}
     smile_factor: 0.18
   agri:
     tickers: [CORN, WEAT, SOYB]
@@ -20,7 +22,8 @@ watchlist:
     # WEAT = Teucrium Wheat Fund (wheat futures, rolling)
     # SOYB = Teucrium Soybean Fund (soybean futures, rolling)
     rss_query: "USDA WASDE corn wheat soybean crop harvest"
-    cot_code: "002602"   # CFTC: Corn (CBOT) — proxy for CORN; not exact for WEAT/SOYB
+    cot_code: "002602"   # CFTC: Corn (CBOT) — direct for CORN; proxy for WEAT/SOYB
+    cot_proxy_weights: {CORN: 1.0, WEAT: 0.65, SOYB: 0.65}
     smile_factor: 0.22
   metals:
     tickers: [GLD, SLV, COPX]
@@ -28,7 +31,8 @@ watchlist:
     # SLV = iShares Silver Trust (silver spot, no roll cost)
     # COPX = Global X Copper Miners ETF (equity exposure, not copper spot)
     rss_query: "gold silver copper LME Fed interest rate metals"
-    cot_code: "088691"   # CFTC: Gold (COMEX) — proxy for GLD/SLV; not applicable to COPX
+    cot_code: "088691"   # CFTC: Gold (COMEX) — direct for GLD; proxy for SLV; equity for COPX
+    cot_proxy_weights: {GLD: 1.0, SLV: 0.80, COPX: 0.35}
     smile_factor: 0.12
   nuclear:
     tickers: [URA, URNM]
@@ -38,6 +42,7 @@ watchlist:
     rss_query: "uranium nuclear power AI datacenter baseload SMR reactor enrichment"
     eia_series: []       # No EIA series for uranium; SRUUF momentum used as proxy in code
     cot_code: ""         # No CFTC COT report for uranium (U3O8 not exchange-traded)
+    cot_proxy_weights: {URA: 0.0, URNM: 0.0}   # No valid COT data → weight 0
     smile_factor: 0.25
 
 keywords:
