@@ -31,6 +31,7 @@ class DataFetcher:
         raw_data["cot"]             = self.fetch_cot_data()
         raw_data["as_of"]           = {"timestamp": datetime.datetime.utcnow().isoformat() + "Z"}
         raw_data["spot_prices"]     = self._validate_spot_prices(raw_data)
+        raw_data["data_timestamps"] = self.data_timestamps(raw_data)
         return raw_data
 
     # ------------------------------------------------------------------ quotes
@@ -367,9 +368,29 @@ class DataFetcher:
                 if ticker not in spots:
                     spot = self._get_spot_price(ticker, raw_data)
                     if spot <= 0:
-                        print(f"  ❌ No valid spot price for {ticker} — segment will be skipped")
+                        print(f"  ❌ No valid spot price for {ticker} — will be skipped")
+                    elif not (0.01 <= spot <= 10_000):
+                        print(f"  ⚠️  {ticker}: spot {spot:.4f} outside plausible range [0.01, 10000] — will be skipped")
+                        spot = 0.0
                     spots[ticker] = spot
         return spots
+
+    def data_timestamps(self, raw_data: dict) -> dict:
+        """Collect last-data-point timestamps from each source for latency auditing."""
+        ts = {}
+        yf = raw_data.get("yfinance", {})
+        for ticker, records in yf.items():
+            if isinstance(records, list) and records:
+                ts[f"yfinance_{ticker}"] = records[-1].get("Date", "unknown")
+        eia = raw_data.get("eia", {})
+        for seg, series_dict in eia.items():
+            for sid, sdata in series_dict.items():
+                ts[f"eia_{sid}"] = sdata.get("period", "unknown")
+        cot = raw_data.get("cot", {})
+        for ticker, cdata in cot.items():
+            ts[f"cot_{ticker}"] = cdata.get("as_of", "unknown")
+        ts["fetch_utc"] = datetime.datetime.utcnow().isoformat() + "Z"
+        return ts
 
     def _get_spot_price(self, ticker, raw_data):
         # 1. Tradier

@@ -449,8 +449,17 @@ def run_pipeline():
                             + datetime.timedelta(days=dte)
                         ).strftime("%Y-%m-%d")
 
+                        # Contract-level sanity checks before any model computation
+                        if strike <= 0:
+                            continue
+                        if T <= 0:
+                            continue
+                        raw_iv = float(opt.get("implied_volatility", 0) or 0)
+                        if raw_iv >= 5.0:   # >500% IV = Tradier data error
+                            continue
+
                         # Market IV from Tradier (per-contract, strike-specific)
-                        market_iv = float(opt.get("implied_volatility", 0) or 0)
+                        market_iv = raw_iv
                         if market_iv <= 0:
                             # Fallback: smile-adjusted HV when Tradier IV missing
                             market_iv = bs_calc.smile_adjusted_iv(hv, spot, strike, smile_factor)
