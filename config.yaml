@@ -56,13 +56,6 @@ keywords:
     high:   ["Fed pivot", "rate cut", "inflation surge", "China stimulus", "mine strike", "supply disruption", "safe haven", "dollar crash"]
     medium: [gold, silver, copper, LME, "interest rate", "real yield", "central bank buying", "industrial demand", "inventory"]
 
-aschenbrenner:
-  enabled: true
-  bias_max_points: 8.0          # additive max. +8 Punkte auf edge_score
-  required_signals: 2           # mindestens 2 von 4 unabhängigen Signalen
-  iv_premium_threshold: 0.12    # market_iv / HV - 1 > 12%
-  focus_tickers: [UNG, USO, XLE, COPX, SLV, URA, URNM]
-
 thresholds:
   data_health_min: 55
   segment_score_min: 4          # echtes News-Gate (vorher: 1)
