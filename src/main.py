@@ -458,26 +458,35 @@ def run_pipeline():
                         })
 
                         # --- Combined edge score ---
+                        # Weights post-Stufe-2: bs_component ≈ 0 (market IV → fair value ≈ mid)
+                        # so its former 30% weight is redistributed to MC and hist.
+                        #
+                        # COT  0.30  fundamental positioning (discounted by cot_proxy_weight)
+                        # MC   0.35  primary edge signal: cheap vol vs HV, net of costs
+                        # Hist 0.15  underlying win-rate at breakeven (3y data, n≥30)
+                        # Vol  0.15  IV-premium + call-skew regime
+                        # BS   0.05  sanity check: large value = stale/inconsistent IV data
+
                         cot_component  = (cot_strength * 20 + cot_z * 8) * eia_impact * cot_proxy_weight
-                        bs_component   = max(0.0, bs_edge * 100)
                         mc_component   = max(0.0, mc_ev / 5.0)
                         hist_component = bt.get("win_rate", 0.48) * 20
+                        bs_component   = max(0.0, bs_edge * 100)
 
                         # IV-Premium: market paying above HV = expects big move (good for long)
-                        iv_premium     = max(0.0, market_iv / hv - 1.0) if hv > 0 else 0.0
-                        iv_prem_pts    = min(iv_premium * 40, 20.0)   # cap at 20 pts
+                        iv_premium  = max(0.0, market_iv / hv - 1.0) if hv > 0 else 0.0
+                        iv_prem_pts = min(iv_premium * 40, 20.0)
 
-                        # Call-skew contribution: >1.0 = right-tail demand
-                        skew_pts       = max(0.0, (call_skew_ratio - 1.0) * 30)
+                        # Call-skew: >1.0 = right-tail demand
+                        skew_pts = max(0.0, (call_skew_ratio - 1.0) * 30)
 
                         vol_regime_component = 0.6 * iv_prem_pts + 0.4 * skew_pts
 
                         raw_edge = (
                             0.30 * cot_component +
-                            0.30 * bs_component +
-                            0.20 * mc_component +
-                            0.08 * hist_component +
-                            0.12 * vol_regime_component
+                            0.35 * mc_component +
+                            0.15 * hist_component +
+                            0.15 * vol_regime_component +
+                            0.05 * bs_component
                         )
                         macro_mult = compute_macro_multiplier(raw_data, seg, opt_type)
                         edge_score = round(raw_edge * macro_mult, 2)
