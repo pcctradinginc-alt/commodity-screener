@@ -61,10 +61,17 @@ class PyCOTAnalyzer:
             match_method = "none"
 
             # 1. Try cot_code from config (most reliable — immune to name changes)
+            # Actual cot_reports column names use spaces, not underscores.
+            # 'CFTC Contract Market Code' holds the 6-char codes (e.g. '067411').
+            # 'CFTC Commodity Code' holds short numeric IDs — not what we want.
             cot_code = cot_cfg.get("cot_code", "")
             if cot_code:
-                for col in ["CFTC_Commodity_Code", "Contract_Market_Code",
-                            "CFTC_Market_Code", "Commodity_Code"]:
+                for col in [
+                    "CFTC Contract Market Code",   # primary: spaces, 6-char code
+                    "CFTC_Contract_Market_Code",   # underscore variant (older versions)
+                    "Contract_Market_Code",
+                    "CFTC_Market_Code",
+                ]:
                     if col in df.columns:
                         mask = df[col].astype(str).str.strip() == str(cot_code).strip()
                         if mask.any():
