@@ -356,12 +356,19 @@ def run_pipeline():
                       f"EIA={eia_impact:.2f}x | Skew={call_skew_ratio:.3f} | "
                       f"Prophet={prop_dir} drift={drift:+.4f}")
 
-                # No directional thesis: skip ticker entirely when Prophet is neutral
-                # AND COT is weak (adjusted for proxy quality). Long options need a
-                # directional catalyst — neutral + weak positioning = no edge.
                 effective_cot_z = cot_z * cot_proxy_weight
+
+                # [T1] No directional thesis: Prophet neutral + COT weak → skip ticker
                 if prop_dir == "neutral" and effective_cot_z < 0.4:
-                    print(f"  [{seg}] {ticker}: Prophet neutral + COT weak (z×w={effective_cot_z:.2f}) → no directional thesis, skipping")
+                    print(f"  [{seg}] {ticker}: [T1] Prophet neutral + COT weak (z×w={effective_cot_z:.2f}) → skip")
+                    continue
+
+                # [T2] Very weak ETF proxy requires clear momentum to compensate.
+                # cot_proxy_weight < 0.35 means COT is nearly useless for this ETF
+                # (e.g. COPX = copper miners equity). Only proceed if Prophet is
+                # directional AND EIA or COT gives at least a mild signal.
+                if cot_proxy_weight < 0.35 and prop_dir == "neutral":
+                    print(f"  [{seg}] {ticker}: [T2] Weak ETF proxy (w={cot_proxy_weight}) + no momentum → skip")
                     continue
 
                 accepted = 0
