@@ -85,7 +85,9 @@ class BacktestPandas:
                 wins      += int(profitable)
                 n_samples += 1
 
-            win_rate = wins / n_samples if n_samples > 0 else 0.48
+            if n_samples < 30:
+                return {"win_rate": 0.48, "n": n_samples}  # too few samples → neutral default
+            win_rate = wins / n_samples
             return {"win_rate": round(win_rate, 3), "n": n_samples}
 
         except Exception as e:

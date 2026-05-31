@@ -191,7 +191,7 @@ class DataFetcher:
         results = {}
         for ticker in sorted(all_tickers):
             try:
-                df = yf.Ticker(ticker).history(period="90d")
+                df = yf.Ticker(ticker).history(period="3y")
                 if df.empty:
                     print(f"  [yfinance] {ticker}: leer")
                     continue

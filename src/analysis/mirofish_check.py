@@ -1,13 +1,15 @@
 """
-MirofishChecker v2 — echter Filter: positive MC-EV UND positiver BS-Edge
+MirofishChecker v3 — drei aufeinanderfolgende Gates:
+  1. mc_ev > 0      (netto EV nach Ask-Fill + Kommission positiv)
+  2. bs_edge > -0.10 (Option nicht >10% teurer als BS-Modell → kein IV-Datenfehler)
+  3. edge_score >= 18 (kombinierter Gesamtscore)
 """
 
 
 class MirofishChecker:
     def __init__(self, cfg=None):
         self.cfg = cfg or {}
-        self.min_score = self.cfg.get("thresholds", {}).get("mirofish_score_min", 25)
-        print("  Mirofish v2: MC-EV > 0 + BS-Edge > 0 + Edge-Score-Gate aktiv")
+        self.min_score = self.cfg.get("thresholds", {}).get("mirofish_score_min", 18)
 
     def run(self, candidates):
         if not candidates:
@@ -15,22 +17,26 @@ class MirofishChecker:
             return []
 
         passed = []
+        rejected = {"mc_ev": 0, "bs_edge": 0, "edge_score": 0}
+
         for c in candidates:
-            edge = c.get("edge_score", 0)
+            if c.get("mc_ev", -999) <= 0:
+                rejected["mc_ev"] += 1
+                continue
+            if c.get("bs_edge", -999) < -0.10:
+                rejected["bs_edge"] += 1
+                continue
+            if c.get("edge_score", 0) < self.min_score:
+                rejected["edge_score"] += 1
+                continue
+            passed.append(c)
 
-            # When market_iv > HV (common in high-uncertainty regimes), both mc_ev and
-            # bs_edge are structurally negative (option priced above HV-fair-value).
-            # The edge_score already penalizes this by zeroing those components.
-            # A separate ev_ok gate would double-penalize and block all trades in this
-            # regime, so we gate only on combined edge_score.
-            if edge >= 18:
-                passed.append(c)
-
-        # Sort by combined quality: MC-EV weight + BS-edge weight
-        passed.sort(
-            key=lambda c: 0.5 * c.get("mc_ev", 0) + 0.5 * c.get("bs_edge", 0) * 100,
-            reverse=True,
+        print(
+            f"  Mirofish: {len(passed)}/{len(candidates)} passed "
+            f"(rejected: mc_ev≤0={rejected['mc_ev']}, "
+            f"bs_edge<-10%={rejected['bs_edge']}, "
+            f"edge<{self.min_score}={rejected['edge_score']})"
         )
 
-        print(f"  Mirofish passed: {len(passed)} / {len(candidates)} (edge≥18)")
+        passed.sort(key=lambda c: c.get("mc_ev", 0), reverse=True)
         return passed[:20]
